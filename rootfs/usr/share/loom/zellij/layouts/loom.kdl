@@ -1,0 +1,36 @@
+// Loom :: default layout
+//
+// Four tabs, because four is what fits in a console status bar without
+// wrapping. The shell tab is the one you live in; the rest are there so that
+// "where do I look at this" always has an answer.
+
+layout {
+    default_tab_template {
+        pane size=1 borderless=true {
+            plugin location="zellij:tab-bar"
+        }
+        children
+        pane size=2 borderless=true {
+            plugin location="zellij:status-bar"
+        }
+    }
+
+    tab name="shell" focus=true {
+        pane
+    }
+
+    tab name="files" {
+        pane command="yazi"
+    }
+
+    // start_suspended: lazygit outside a repository is just an error message,
+    // so this one waits for you to press enter.
+    tab name="git" {
+        pane command="lazygit" start_suspended=true
+    }
+
+    tab name="sys" split_direction="vertical" {
+        pane command="btop"
+        pane
+    }
+}

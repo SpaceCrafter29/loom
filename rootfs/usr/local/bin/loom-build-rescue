@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Loom, by SpaceCrafter29 -- https://github.com/SpaceCrafter29/loom
+# Rebuild the "Loom Rescue" unified kernel image and sign it.
+#
+# Run from a pacman hook on every kernel change. The rescue image embeds a copy
+# of cryptsetup, btrfs-progs and bash, so a kernel or firmware update genuinely
+# does invalidate it -- an image built against 6.16 modules cannot read a 6.17
+# machine's disks.
+
+set -uo pipefail
+
+PRESET="/etc/mkinitcpio.d/loom-rescue.preset"
+log() { printf 'loom-build-rescue: %s\n' "$*"; }
+
+[[ $EUID -eq 0 ]] || { log "must run as root"; exit 1; }
+
+if [[ ! -f $PRESET ]]; then
+    log "$PRESET is missing; the rescue image is not configured"
+    exit 0
+fi
+
+if [[ ! -f /etc/mkinitcpio-rescue.conf ]]; then
+    log "/etc/mkinitcpio-rescue.conf is missing; refusing to build a broken image"
+    exit 1
+fi
+
+log "building the rescue image (this takes a moment; it carries its own tools)"
+if ! mkinitcpio -p loom-rescue; then
+    log "ERROR: mkinitcpio failed. The existing rescue image, if any, is untouched."
+    exit 1
+fi
+
+if [[ -x /usr/local/bin/loom-sign-boot ]]; then
+    /usr/local/bin/loom-sign-boot
+fi
+
+log "done"
+exit 0

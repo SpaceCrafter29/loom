@@ -1,0 +1,91 @@
+name: iso
+
+# Builds the install medium where nobody needs an Arch machine: a privileged
+# archlinux container on a GitHub runner. Tag a commit and the .iso is attached
+# to the release.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    name: static checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install shellcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y shellcheck
+      - name: tools/check.sh
+        run: bash tools/check.sh
+
+  iso:
+    name: build iso
+    needs: check
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+      # mkarchiso needs loop devices, mount and mknod.
+      options: --privileged
+    steps:
+      - name: install build dependencies
+        run: pacman -Syu --noconfirm --needed archiso git libisoburn squashfs-tools
+
+      - uses: actions/checkout@v4
+
+      - name: assemble the profile
+        run: |
+          mkdir -p build out
+          cp -a iso build/profile
+          payload=build/profile/airootfs/usr/share/loom-payload
+          mkdir -p "$payload"
+          cp -a packages rootfs scripts docs README.md "$payload/"
+          rm -f "$payload/scripts/build-iso.sh"
+          chmod 0755 build/profile/airootfs/usr/local/bin/* \
+                     "$payload/scripts/bootstrap.sh" \
+                     "$payload/rootfs/usr/local/bin/"* \
+                     "$payload/rootfs/usr/share/loom/rescue/rescue.sh" \
+                     "$payload/rootfs/etc/initcpio/install/loom-rescue" \
+                     "$payload/rootfs/etc/initcpio/hooks/loom-rescue"
+          wants=build/profile/airootfs/etc/systemd/system/multi-user.target.wants
+          mkdir -p "$wants"
+          ln -sf /usr/lib/systemd/system/NetworkManager.service "$wants/NetworkManager.service"
+          ln -sf /usr/lib/systemd/system/systemd-timesyncd.service "$wants/systemd-timesyncd.service"
+
+      - name: mkarchiso
+        run: mkarchiso -v -w build/work -o out build/profile
+
+      - name: checksum
+        run: |
+          cd out
+          sha256sum ./*.iso | tee SHA256SUMS
+          ls -lh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: loom-iso
+          path: |
+            out/*.iso
+            out/SHA256SUMS
+          retention-days: 14
+          compression-level: 0
+
+      - name: release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/*.iso
+            out/SHA256SUMS
+          body: |
+            Loom install medium, built from ${{ github.sha }}.
+
+            UEFI only. Verify the download against SHA256SUMS, write it with
+            `dd if=loom-*.iso of=/dev/sdX bs=4M oflag=sync`, boot it, and run
+            `loom-install`. Running `loom-install --dry-run` first shows the
+            complete plan without touching a disk.

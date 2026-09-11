@@ -1,0 +1,50 @@
+// Loom :: zellij
+//
+// This file is tuned for the Linux console first and a Wayland terminal second.
+// Two things follow from that:
+//
+//   simplified_ui  -- the console font has no nerd-font glyphs, so the status
+//                     bar must be built out of plain characters
+//   theme by index -- colours are given as palette indices 0-15, not hex, so
+//                     that /usr/share/loom/console/palette is the single place
+//                     the system's colours are defined
+
+theme "loom"
+default_layout "loom"
+default_mode "normal"
+
+simplified_ui true
+pane_frames false
+mouse_mode true
+copy_on_select true
+scroll_buffer_size 20000
+session_serialization true
+pane_viewport_serialization true
+
+themes {
+    loom {
+        fg 7
+        bg 0
+        black 0
+        red 1
+        green 2
+        yellow 3
+        blue 4
+        magenta 5
+        cyan 6
+        white 7
+        orange 3
+    }
+}
+
+keybinds {
+    // Everything here is additive: zellij's own defaults (Ctrl+p panes,
+    // Ctrl+t tabs, Ctrl+o session, Ctrl+g lock) are untouched.
+    shared_except "locked" {
+        bind "Alt f" { Run "yazi"; }
+        bind "Alt g" { Run "lazygit"; }
+        bind "Alt m" { Run "btop"; }
+        bind "Alt w" { Run "loomctl" "web"; }
+        bind "Alt h" { Run "loomctl" "health"; }
+    }
+}

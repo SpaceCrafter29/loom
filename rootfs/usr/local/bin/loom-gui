@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# Loom, by SpaceCrafter29 -- https://github.com/SpaceCrafter29/loom
+# Put pixels on the screen, on demand, and then give the terminal back.
+#
+# Loom has no display manager and no display server running at boot. When you
+# need a browser or a PDF, this borrows the VT you are already sitting on:
+#
+#   loom-gui                 start the full tiling session (river)
+#   loom-gui firefox         run one app under cage, full screen, nothing else
+#   loom-gui zathura doc.pdf same, with arguments
+#
+# While the compositor holds the VT the kernel puts it in graphics mode, so the
+# multiplexer underneath stops receiving input and simply waits. When the app
+# exits, the VT goes back to text mode and your session is exactly where it was.
+
+set -uo pipefail
+
+LOOM_CONF="${LOOM_CONF:-/etc/loom/loom.conf}"
+LOOM_GUI_COMPOSITOR="cage"
+LOOM_GUI_SESSION="river"
+LOOM_GUI_BROWSER="firefox"
+# shellcheck source=/dev/null
+[[ -r $LOOM_CONF ]] && . "$LOOM_CONF"
+
+PROG="${0##*/}"
+die()  { printf '%s: %s\n' "$PROG" "$*" >&2; exit 1; }
+warn() { printf '%s: %s\n' "$PROG" "$*" >&2; }
+
+LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/loom"
+LOG="$LOG_DIR/gui.log"
+
+# The comment block at the top of this file is the help text. Extracting it by
+# searching for the first blank line rather than by line number means adding a
+# line up there cannot silently truncate it.
+show_help() {
+    sed -n '2,/^$/p' "$0" | sed -e '/^# Loom, by /d' -e 's/^# \{0,1\}//'
+}
+
+# --help and --log must work from anywhere -- over SSH, in a pipe, from a script.
+# Only actually launching a compositor needs a seat.
+case "${1:-}" in
+    -h|--help|help) show_help; exit 0 ;;
+    --log)          exec tail -n 100 -f "$LOG" ;;
+esac
+
+[[ $EUID -eq 0 ]] && die "do not run a compositor as root"
+
+# A Wayland compositor needs a logind session that owns a VT, otherwise it
+# cannot become DRM master and will fail with an unhelpful error.
+if [[ -n ${SSH_TTY:-} || -n ${SSH_CONNECTION:-} ]]; then
+    die "you are over SSH; there is no local seat to draw on"
+fi
+if [[ -z ${XDG_VTNR:-} ]]; then
+    die "not on a virtual terminal (XDG_VTNR is unset) -- log in at the console"
+fi
+if [[ -z ${XDG_RUNTIME_DIR:-} ]]; then
+    die "XDG_RUNTIME_DIR is unset; is systemd-logind running?"
+fi
+
+# Wayland-native by preference, X11 through Xwayland only where necessary.
+export XDG_SESSION_TYPE=wayland
+export MOZ_ENABLE_WAYLAND=1
+export QT_QPA_PLATFORM="wayland;xcb"
+export SDL_VIDEODRIVER=wayland
+export CLUTTER_BACKEND=wayland
+export _JAVA_AWT_WM_NONREPARENTING=1
+export ELECTRON_OZONE_PLATFORM_HINT=auto
+
+mkdir -p "$LOG_DIR"
+
+run_session() {
+    command -v "$LOOM_GUI_SESSION" >/dev/null 2>&1 \
+        || die "$LOOM_GUI_SESSION is not installed (pacman -S $LOOM_GUI_SESSION)"
+    export XDG_CURRENT_DESKTOP="$LOOM_GUI_SESSION"
+    printf -- '--- %s: session %s ---\n' "$(date -Is)" "$LOOM_GUI_SESSION" >>"$LOG"
+    exec "$LOOM_GUI_SESSION" >>"$LOG" 2>&1
+}
+
+run_single() {
+    local app="$1"; shift
+    command -v "$LOOM_GUI_COMPOSITOR" >/dev/null 2>&1 \
+        || die "$LOOM_GUI_COMPOSITOR is not installed (pacman -S $LOOM_GUI_COMPOSITOR)"
+    command -v "$app" >/dev/null 2>&1 \
+        || die "$app is not installed"
+
+    export XDG_CURRENT_DESKTOP=cage
+    printf -- '--- %s: %s %s ---\n' "$(date -Is)" "$app" "$*" >>"$LOG"
+
+    # -s keeps Ctrl+Alt+Fn working, so a hung app cannot trap you on this VT.
+    if ! "$LOOM_GUI_COMPOSITOR" -s -- "$app" "$@" >>"$LOG" 2>&1; then
+        warn "$app exited with an error; see $LOG"
+        return 1
+    fi
+}
+
+case "${1:-}" in
+    "")
+        run_session
+        ;;
+    web)
+        shift
+        run_single "$LOOM_GUI_BROWSER" "$@"
+        ;;
+    *)
+        run_single "$@"
+        ;;
+esac

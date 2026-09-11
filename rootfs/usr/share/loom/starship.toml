@@ -1,0 +1,72 @@
+# Loom :: starship
+#
+# ASCII only, and colours by name so they resolve to the 16 console colours.
+# A prompt full of nerd-font glyphs renders as a row of empty boxes on a TTY,
+# which is how you can tell a rice was never tested outside a GPU terminal.
+
+add_newline = true
+command_timeout = 800
+
+format = """
+$username$hostname$directory$git_branch$git_status$cmd_duration
+$character"""
+
+[character]
+success_symbol = "[>](bold green)"
+error_symbol = "[>](bold red)"
+vicmd_symbol = "[<](bold yellow)"
+
+[username]
+show_always = true
+format = "[$user]($style)"
+style_user = "bold blue"
+style_root = "bold red"
+
+[hostname]
+ssh_only = false
+format = "[@$hostname]($style) "
+style = "dimmed white"
+
+[directory]
+truncation_length = 3
+truncate_to_repo = true
+style = "bold cyan"
+format = "[$path]($style)[$read_only]($read_only_style) "
+read_only = " ro"
+
+[git_branch]
+symbol = ""
+format = "[$branch]($style) "
+style = "bold magenta"
+
+[git_status]
+format = '([$all_status$ahead_behind]($style)) '
+style = "yellow"
+conflicted = "!"
+ahead = "^${count}"
+behind = "v${count}"
+diverged = "^v"
+untracked = "?"
+stashed = "$"
+modified = "*"
+staged = "+"
+renamed = "»"
+deleted = "x"
+
+[cmd_duration]
+min_time = 2000
+format = "[$duration]($style) "
+style = "dimmed yellow"
+
+[status]
+disabled = false
+format = "[$status]($style) "
+style = "bold red"
+
+# Language modules are noise on a prompt you look at a thousand times a day.
+[nodejs]
+disabled = true
+[rust]
+disabled = true
+[python]
+disabled = true

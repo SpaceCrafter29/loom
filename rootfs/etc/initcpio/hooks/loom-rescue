@@ -1,0 +1,17 @@
+#!/usr/bin/ash
+# Runtime hook. This runs inside mkinitcpio's init before the root filesystem is
+# mounted, and deliberately never returns: the rescue shell either reboots the
+# machine or drops you to an emergency prompt. The normal boot path is never
+# reached, which is exactly what "rescue image" should mean.
+
+run_hook() {
+    if [ -x /usr/bin/bash ] && [ -r /usr/lib/loom/rescue.sh ]; then
+        /usr/bin/bash /usr/lib/loom/rescue.sh
+    else
+        echo "loom-rescue: rescue shell missing, falling back to emergency shell"
+    fi
+
+    # Only reached if rescue.sh returned. Give the operator a shell rather than
+    # silently continuing into a boot they did not ask for.
+    launch_interactive_shell
+}

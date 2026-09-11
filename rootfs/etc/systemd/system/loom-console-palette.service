@@ -1,0 +1,13 @@
+[Unit]
+Description=Apply the Loom console palette to all VTs
+Documentation=file:///usr/share/loom/console/palette.md
+After=systemd-vconsole-setup.service
+ConditionPathExists=/usr/share/loom/console/palette
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/setvtrgb /usr/share/loom/console/palette
+
+[Install]
+WantedBy=multi-user.target

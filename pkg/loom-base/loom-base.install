@@ -1,0 +1,40 @@
+post_install() {
+  cat <<'MSG'
+
+  Loom configuration installed.
+
+  This package deliberately does not enable services or rewrite your
+  bootloader: doing that from a package install would be rude. Finish with:
+
+    sudo /usr/share/loom-payload/scripts/bootstrap.sh --user <you>
+
+  That script is idempotent, so it is also the right thing to run after an
+  upgrade that adds a new service.
+
+MSG
+}
+
+post_upgrade() {
+  if [ -f /etc/kernel/cmdline ]; then
+    cat <<'MSG'
+
+  The kernel images were rebuilt and re-signed by the pacman hooks. If this
+  upgrade touched anything under /etc/initcpio, confirm the rescue entry still
+  exists before you need it:
+
+    loomctl health
+
+MSG
+  fi
+}
+
+pre_remove() {
+  cat <<'MSG'
+
+  Removing loom-base leaves /etc/mkinitcpio.d/linux.preset pointing at
+  /efi/EFI/Linux. Kernel images keep building, but the rescue entry will no
+  longer be rebuilt on kernel upgrades, and a stale rescue image cannot read a
+  newer kernel's disks.
+
+MSG
+}

@@ -1,0 +1,30 @@
+# Loom :: dev
+# Toolchains and containers.
+
+## containers (rootless podman)
+podman
+buildah
+crun
+netavark
+aardvark-dns
+fuse-overlayfs
+slirp4netns
+
+## languages
+rustup
+go
+python
+python-pip
+python-pipx
+nodejs
+npm
+
+## build + inspect
+cmake
+ninja
+meson
+pkgconf
+gdb
+jq
+yq
+shellcheck

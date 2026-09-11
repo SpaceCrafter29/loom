@@ -1,0 +1,109 @@
+# Maintainer: SpaceCrafter29 <https://github.com/SpaceCrafter29>
+#
+# Loom as a pacman package.
+#
+# bootstrap.sh exists because it works on a machine with no repository set up.
+# This exists because, once you have more than one Loom machine, you want
+# `pacman -Syu` to deliver configuration changes the same way it delivers
+# everything else. Build it, drop it in a local repo, and `loomctl update`
+# becomes the only update path you need.
+#
+#   cd pkg/loom-base && makepkg -si
+#
+# To serve it to other machines:
+#   repo-add /srv/loom/loom.db.tar.zst /srv/loom/loom-base-*.pkg.tar.zst
+# then add to /etc/pacman.conf:
+#   [loom]
+#   SigLevel = Optional TrustAll
+#   Server = file:///srv/loom
+
+pkgname=loom-base
+pkgver=2026.09.11
+pkgrel=1
+pkgdesc="Loom: a terminal-first Arch system -- console session, snapshot rollback, signed boot"
+arch=('any')
+url='https://github.com/SpaceCrafter29/loom'
+license=('MIT')
+
+# Only what Loom genuinely cannot work without. Application choices live in
+# packages/*.txt, not here: a configuration package that drags in firefox is a
+# configuration package nobody can install on a server.
+depends=(
+  'bash' 'btrfs-progs' 'cryptsetup' 'snapper' 'snap-pac'
+  'mkinitcpio' 'systemd' 'pacman-contrib'
+  'kbd' 'terminus-font'
+  'zellij' 'fish' 'neovim'
+)
+
+optdepends=(
+  'sbctl: Secure Boot key management and signing'
+  'reflector: mirrorlist refresh before an upgrade'
+  'informant: block upgrades until the Arch news has been read'
+  'cage: run a single graphical application on demand'
+  'river: a tiling Wayland session for when the console is not enough'
+  'tlp: laptop power management'
+  'starship: the prompt Loom ships a config for'
+  'yazi: the file manager bound to Alt+f'
+  'lazygit: the git UI bound to Alt+g'
+  'btop: the system monitor bound to Alt+m'
+)
+
+backup=(
+  'etc/loom/loom.conf'
+  'etc/vconsole.conf'
+  'etc/mkinitcpio.conf.d/loom.conf'
+  'etc/mkinitcpio-rescue.conf'
+  'etc/sysctl.d/99-loom.conf'
+  'etc/tlp.d/99-loom.conf'
+  'etc/systemd/zram-generator.conf'
+  'etc/systemd/logind.conf.d/loom.conf'
+  'etc/sudoers.d/loom'
+)
+
+install="${pkgname}.install"
+source=()
+
+# Built straight out of the repo working tree rather than from a tarball, so
+# that a change to rootfs/ is one makepkg away from being installed.
+_repo_root() {
+  local d="$startdir"
+  while [[ $d != / && $d != . && -n $d ]]; do
+    if [[ -d $d/rootfs/usr/local/bin && -d $d/packages ]]; then
+      printf '%s' "$d"
+      return 0
+    fi
+    d=$(dirname "$d")
+  done
+  return 1
+}
+
+package() {
+  local repo
+  if ! repo=$(_repo_root); then
+    echo "error: cannot find the Loom repo root above $startdir" >&2
+    return 1
+  fi
+
+  cp -a "$repo/rootfs/." "$pkgdir/"
+
+  local f
+  for f in loomctl loom-session loom-gui loom-sign-boot loom-build-rescue; do
+    install -Dm755 "$repo/rootfs/usr/local/bin/$f" "$pkgdir/usr/local/bin/$f"
+  done
+  install -Dm755 "$repo/rootfs/usr/share/loom/rescue/rescue.sh" \
+                 "$pkgdir/usr/share/loom/rescue/rescue.sh"
+  install -Dm755 "$repo/rootfs/etc/initcpio/install/loom-rescue" \
+                 "$pkgdir/etc/initcpio/install/loom-rescue"
+  install -Dm755 "$repo/rootfs/etc/initcpio/hooks/loom-rescue" \
+                 "$pkgdir/etc/initcpio/hooks/loom-rescue"
+  install -Dm440 "$repo/rootfs/etc/sudoers.d/loom" "$pkgdir/etc/sudoers.d/loom"
+
+  # The package lists travel with the package so that bootstrap.sh keeps working
+  # on an installed machine, including --dry-run.
+  install -d "$pkgdir/usr/share/loom-payload"
+  cp -a "$repo/packages" "$repo/scripts" "$pkgdir/usr/share/loom-payload/"
+  rm -f "$pkgdir/usr/share/loom-payload/scripts/build-iso.sh"
+  chmod 0755 "$pkgdir/usr/share/loom-payload/scripts/bootstrap.sh"
+
+  install -Dm644 "$repo/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

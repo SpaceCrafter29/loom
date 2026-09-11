@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# Loom, by SpaceCrafter29 -- https://github.com/SpaceCrafter29/loom
+# Sign everything on the ESP that the firmware will execute.
+#
+# Called from a pacman hook, so it has to be a silent no-op on machines where
+# Secure Boot keys were never created. It must never fail a transaction: a
+# non-zero exit here would leave pacman looking broken for a cosmetic reason.
+
+set -uo pipefail
+
+LOOM_CONF="${LOOM_CONF:-/etc/loom/loom.conf}"
+LOOM_ESP="/efi"
+LOOM_UKI_DIR="/efi/EFI/Linux"
+LOOM_SECUREBOOT="1"
+# shellcheck source=/dev/null
+[[ -r $LOOM_CONF ]] && . "$LOOM_CONF"
+
+log() { printf 'loom-sign-boot: %s\n' "$*"; }
+
+[[ $LOOM_SECUREBOOT == 1 ]] || { log "disabled in loom.conf; nothing to do"; exit 0; }
+command -v sbctl >/dev/null 2>&1 || { log "sbctl not installed; nothing to do"; exit 0; }
+
+# sbctl moved its key store between releases; accept either.
+if [[ ! -d /var/lib/sbctl/keys && ! -d /usr/share/secureboot/keys ]]; then
+    log "no Secure Boot keys yet -- run 'sbctl create-keys' first; nothing to do"
+    exit 0
+fi
+
+# Make sure the things we care about are in sbctl's database. `sbctl sign -s`
+# both signs the file and remembers it, so later kernel upgrades are covered by
+# sbctl's own hook even if this script is never called again.
+track() {
+    local f="$1"
+    [[ -f $f ]] || return 0
+    if sbctl list-files 2>/dev/null | grep -qF -- "$f"; then
+        return 0
+    fi
+    log "tracking $f"
+    sbctl sign -s "$f" >/dev/null 2>&1 || log "could not sign $f"
+}
+
+shopt -s nullglob
+for uki in "$LOOM_UKI_DIR"/*.efi; do
+    track "$uki"
+done
+shopt -u nullglob
+
+track "$LOOM_ESP/EFI/systemd/systemd-bootx64.efi"
+track "$LOOM_ESP/EFI/BOOT/BOOTX64.EFI"
+
+# Re-sign anything whose contents changed since it was last signed.
+if sbctl sign-all >/dev/null 2>&1; then
+    log "all tracked files signed"
+else
+    log "sbctl sign-all reported errors:"
+    sbctl sign-all 2>&1 | sed 's/^/  /'
+fi
+
+# Report, do not fail.
+if ! sbctl verify >/dev/null 2>&1; then
+    log "WARNING: sbctl verify still reports unsigned files:"
+    sbctl verify 2>&1 | grep -v '^✓' | sed 's/^/  /'
+fi
+
+exit 0

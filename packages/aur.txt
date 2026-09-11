@@ -1,0 +1,20 @@
+# Loom :: aur (optional)
+# Built with paru during bootstrap only when --aur is passed. None of these are
+# load-bearing; Loom boots and updates without them.
+
+# Blocks `pacman -Syu` until you have read the Arch news. Rolling-release
+# insurance, and the single highest-value package on this list.
+informant
+
+# A nicer greeter than agreety if you decide to run greetd.
+greetd-tuigreet
+
+# Bluetooth TUI, nicer than bluetoothctl.
+bluetuith
+
+# Framebuffer image viewer: real pixels on the TTY instead of chafa's blocks.
+fbv
+
+# DRM console with TrueType fonts and 24-bit colour, to escape the kernel
+# console's 16-colour limit. See docs/tty-limitations.md before enabling.
+kmscon

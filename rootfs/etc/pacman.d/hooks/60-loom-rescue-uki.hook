@@ -1,0 +1,13 @@
+[Trigger]
+Type = Path
+Operation = Install
+Operation = Upgrade
+Target = usr/lib/modules/*/vmlinuz
+Target = usr/lib/firmware/*
+Target = usr/lib/initcpio/*
+Target = etc/initcpio/*
+
+[Action]
+Description = Rebuilding the Loom rescue unified kernel image...
+When = PostTransaction
+Exec = /usr/local/bin/loom-build-rescue

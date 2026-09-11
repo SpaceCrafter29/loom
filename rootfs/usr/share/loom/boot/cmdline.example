@@ -1,0 +1,17 @@
+# Template only. `loom-install` writes the real /etc/kernel/cmdline with your
+# actual UUIDs substituted, because getting these wrong is an unbootable
+# machine.
+#
+#   rd.luks.name=<LUKS-PARTITION-UUID>=cryptroot
+#   root=/dev/mapper/cryptroot
+#   rootflags=subvol=@
+#   rw
+#   quiet
+#   loglevel=3
+#   nowatchdog
+#
+# Written as a single line, space separated. No TPM2 option is needed here:
+# systemd-cryptsetup finds the TPM2 token in the LUKS2 header by itself.
+#
+# For hibernation to a swapfile, append:
+#   resume=/dev/mapper/cryptroot resume_offset=<btrfs_map-physical offset>

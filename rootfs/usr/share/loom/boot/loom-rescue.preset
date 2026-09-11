@@ -1,0 +1,8 @@
+# Loom: the rescue UKI. Installed to /etc/mkinitcpio.d/loom-rescue.preset and
+# rebuilt by the 60-loom-rescue-uki pacman hook whenever the kernel changes.
+ALL_kver="/boot/vmlinuz-linux"
+
+PRESETS=('rescue')
+
+rescue_config="/etc/mkinitcpio-rescue.conf"
+rescue_uki="/efi/EFI/Linux/loom-rescue.efi"

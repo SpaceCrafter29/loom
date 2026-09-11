@@ -1,0 +1,676 @@
+#!/usr/bin/env bash
+# Loom, by SpaceCrafter29 -- https://github.com/SpaceCrafter29/loom
+# loom-install -- put Loom on a disk.
+#
+# This is the only part of Loom that destroys data, so it is written to be read
+# before it is run:
+#
+#   * it asks everything first, then shows the complete plan, then asks you to
+#     type the disk's name before it writes a single byte
+#   * --dry-run prints exactly the same plan and touches nothing
+#   * it never invents a kernel command line; it derives one from the UUIDs it
+#     just created
+#   * passwords are set by running passwd interactively in the new system. They
+#     are never read into a variable, never written to a file, and never logged.
+#
+# Everything after "base system installed" is bootstrap.sh, which is the same
+# script you would run on an existing Arch machine. There is one definition of
+# what Loom is, and this script does not contain a second copy of it.
+
+set -euo pipefail
+
+PAYLOAD="/usr/share/loom-payload"
+# shellcheck source=/dev/null
+. "$PAYLOAD/scripts/lib/common.sh"
+
+LOOM_LOG="/tmp/loom-install.log"
+TARGET="/mnt"
+MAPPER="cryptroot"
+ESP_SIZE="1GiB"
+
+DRY_RUN=0
+
+# --- answers -----------------------------------------------------------------
+DISK=""
+HOSTNAME_="loom"
+USERNAME=""
+TIMEZONE=""
+LOCALE="en_US.UTF-8"
+KEYMAP="us"
+ENCRYPT=1
+SECUREBOOT=1
+SWAP_GIB=0
+WANT_GUI=1
+WANT_DEV=1
+WANT_LAPTOP=1
+
+usage() {
+    cat <<EOF
+${C_B}usage:${C_RESET} loom-install [--dry-run] [--disk /dev/nvme0n1]
+
+  --disk DEV    the disk to install onto (it will be completely erased)
+  --dry-run     show the plan, change nothing
+  -h, --help    this
+
+Run it with no arguments to be asked each question in turn.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run) DRY_RUN=1; shift ;;
+        --disk)    DISK="${2:-}"; shift 2 ;;
+        --disk=*)  DISK="${1#*=}"; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) die "unknown option: $1" ;;
+    esac
+done
+
+run() {
+    if (( DRY_RUN )); then
+        printf '  %s$%s %s\n' "$C_DIM" "$C_RESET" "$*"
+        return 0
+    fi
+    _log_raw "RUN  $*"
+    "$@"
+}
+
+# Commands whose output we want to keep quiet but whose failure is fatal.
+runq() {
+    if (( DRY_RUN )); then
+        printf '  %s$%s %s\n' "$C_DIM" "$C_RESET" "$*"
+        return 0
+    fi
+    _log_raw "RUN  $*"
+    "$@" >>"$LOOM_LOG" 2>&1
+}
+
+ask() {
+    local prompt="$1" def="${2-}" ans=""
+    if [[ -n $def ]]; then
+        read -r -p "  $prompt [$def]: " ans || true
+    else
+        read -r -p "  $prompt: " ans || true
+    fi
+    printf '%s' "${ans:-$def}"
+}
+
+ask_yn() {
+    local prompt="$1" def="${2:-y}" ans hint
+    [[ $def == y ]] && hint="[Y/n]" || hint="[y/N]"
+    read -r -p "  $prompt $hint " ans || true
+    ans="${ans:-$def}"
+    [[ $ans == [yY] || $ans == yes ]]
+}
+
+# --- 1. preflight ------------------------------------------------------------
+
+preflight() {
+    clear 2>/dev/null || true
+    cat <<EOF
+${C_CYN}${C_B}
+   L O O M
+${C_RESET}${C_DIM}   a terminal-shaped Arch system: zellij on the console, Btrfs snapshots
+   around every upgrade, and a rescue entry that can undo one offline
+
+   by SpaceCrafter29 -- github.com/SpaceCrafter29/loom
+${C_RESET}
+EOF
+
+    (( DRY_RUN )) || need_root
+    need_cmd sgdisk cryptsetup mkfs.btrfs pacstrap arch-chroot genfstab blkid lsblk
+
+    if [[ ! -d /sys/firmware/efi/efivars ]]; then
+        die "this machine booted in legacy BIOS mode.
+Loom is UEFI-only: unified kernel images and Secure Boot both depend on it.
+Reboot, turn off CSM/legacy boot in the firmware, and try again."
+    fi
+    ok "booted in UEFI mode"
+
+    if ping -c1 -W3 archlinux.org >/dev/null 2>&1; then
+        ok "network is up"
+    else
+        die "no network. Connect first -- run 'nmtui' for wifi -- then re-run loom-install."
+    fi
+
+    if timedatectl show -p NTPSynchronized --value 2>/dev/null | grep -q yes; then
+        ok "clock is synchronised"
+    else
+        warn "clock is not synchronised yet; package signature checks may fail"
+        run timedatectl set-ntp true
+    fi
+}
+
+# --- 2. questions ------------------------------------------------------------
+
+choose_disk() {
+    if [[ -n $DISK ]]; then
+        [[ -b $DISK ]] || die "$DISK is not a block device"
+        return 0
+    fi
+
+    printf '\n'
+    step "Which disk?"
+    lsblk -dpno NAME,SIZE,MODEL,TRAN | grep -v '^/dev/loop' | sed 's/^/    /'
+    printf '\n'
+    DISK=$(ask "disk (e.g. /dev/nvme0n1)" "")
+    [[ -n $DISK ]] || die "no disk given"
+    [[ -b $DISK ]] || die "$DISK is not a block device"
+
+    # Installing onto the stick you booted from is a specific kind of bad day.
+    local iso_src
+    iso_src=$(findmnt -no SOURCE /run/archiso/bootmnt 2>/dev/null || true)
+    if [[ -n $iso_src && $iso_src == "$DISK"* ]]; then
+        die "$DISK is the installation medium you booted from"
+    fi
+}
+
+questions() {
+    choose_disk
+
+    printf '\n'
+    step "System"
+    HOSTNAME_=$(ask "hostname" "$HOSTNAME_")
+    USERNAME=$(ask "your username" "$USERNAME")
+    [[ -n $USERNAME ]] || die "a username is required"
+    [[ $USERNAME =~ ^[a-z_][a-z0-9_-]*$ ]] || die "'$USERNAME' is not a valid Unix username"
+
+    local guessed_tz
+    guessed_tz=$(curl -fsS --max-time 3 https://ipapi.co/timezone 2>/dev/null || true)
+    [[ -f /usr/share/zoneinfo/$guessed_tz ]] || guessed_tz="UTC"
+    TIMEZONE=$(ask "timezone" "$guessed_tz")
+    [[ -f /usr/share/zoneinfo/$TIMEZONE ]] || die "unknown timezone '$TIMEZONE'"
+
+    LOCALE=$(ask "locale" "$LOCALE")
+    grep -q "^#\?${LOCALE} " /usr/share/i18n/SUPPORTED 2>/dev/null \
+        || warn "'$LOCALE' is not in /usr/share/i18n/SUPPORTED; continuing anyway"
+    KEYMAP=$(ask "console keymap" "$KEYMAP")
+    localectl list-keymaps 2>/dev/null | grep -qx "$KEYMAP" \
+        || warn "'$KEYMAP' is not a known keymap; continuing anyway"
+
+    printf '\n'
+    step "Disk"
+    ask_yn "Encrypt the disk with LUKS2? (strongly recommended)" y && ENCRYPT=1 || ENCRYPT=0
+
+    local ram_gib
+    ram_gib=$(( $(awk '/MemTotal/{print $2}' /proc/meminfo) / 1024 / 1024 ))
+    note "this machine has ${ram_gib}GiB of RAM, and zram gives you compressed"
+    note "swap in memory already. A swapfile on disk is only worth it for"
+    note "hibernation, which needs at least ${ram_gib}GiB."
+    SWAP_GIB=$(ask "swapfile size in GiB (0 for none)" "0")
+    [[ $SWAP_GIB =~ ^[0-9]+$ ]] || die "swap size must be a whole number of GiB"
+
+    printf '\n'
+    step "Secure Boot"
+    local sb_state="unknown"
+    if command -v sbctl >/dev/null 2>&1; then
+        if sbctl status 2>/dev/null | grep -q 'Setup Mode:.*Enabled'; then
+            sb_state="setup mode (keys can be enrolled now)"
+        elif sbctl status 2>/dev/null | grep -q 'Secure Boot:.*Enabled'; then
+            sb_state="already enabled with someone else's keys"
+        else
+            sb_state="disabled in firmware"
+        fi
+    fi
+    note "firmware reports: $sb_state"
+    note "Loom can create its own keys and sign every kernel image it builds."
+    note "Enrolling them needs the firmware to be in Setup Mode; if it is not,"
+    note "the install still completes and you can enrol later with one command."
+    ask_yn "Set up Secure Boot signing?" y && SECUREBOOT=1 || SECUREBOOT=0
+
+    printf '\n'
+    step "What to install"
+    ask_yn "Toolchains and containers (rust, go, node, podman)?" y && WANT_DEV=1 || WANT_DEV=0
+    ask_yn "Laptop power management (TLP, fwupd, thermald)?" y && WANT_LAPTOP=1 || WANT_LAPTOP=0
+    note "Loom boots to a bare console. The graphics group installs cage, river"
+    note "and firefox so that 'loomctl gui firefox' has something to run; nothing"
+    note "starts at boot either way."
+    ask_yn "Graphics group?" y && WANT_GUI=1 || WANT_GUI=0
+}
+
+# --- 3. the plan -------------------------------------------------------------
+
+show_plan() {
+    local size
+    size=$(lsblk -dno SIZE "$DISK" | tr -d ' ')
+
+    cat <<EOF
+
+${C_RED}${C_B}================================ THE PLAN =================================${C_RESET}
+
+  ${C_B}$DISK${C_RESET} ($size, $(lsblk -dno MODEL "$DISK" | sed 's/[[:space:]]*$//'))
+  ${C_RED}Everything on it will be destroyed.${C_RESET}
+
+  partitions
+    1  ${ESP_SIZE}   EFI system partition, FAT32, mounted at /efi
+    2  rest   $( (( ENCRYPT )) && echo "LUKS2 (argon2id) -> Btrfs" || echo "Btrfs, unencrypted" )
+
+  btrfs subvolumes
+    @            /              the system; this is what a rollback replaces
+    @home        /home          your files; never touched by a rollback
+    @snapshots   /.snapshots    top level on purpose, so rollbacks cannot eat it
+    @log         /var/log       excluded from snapshots: logs about a failed
+                                upgrade are worthless if the rollback reverts them
+    @cache       /var/cache     no point snapshotting a package cache
+    @containers  /var/lib/containers  nodatacow, for podman's overlay images
+$( (( SWAP_GIB > 0 )) && printf '    @swap        /swap          nodatacow, %sGiB swapfile\n' "$SWAP_GIB" )
+    mount options: noatime,compress=zstd:1,ssd,discard=async,space_cache=v2
+
+  boot
+    systemd-boot on the ESP, menu timeout 3s
+    unified kernel images in /efi/EFI/Linux
+      loom-linux.efi            normal boot
+      loom-linux-fallback.efi   same, with every module
+      loom-rescue.efi           offline snapshot rollback and repair shell
+    secure boot: $( (( SECUREBOOT )) && echo "own keys, created and enrolled if the firmware allows" || echo "not configured" )
+
+  system
+    hostname   $HOSTNAME_
+    user       $USERNAME (wheel, video, input, audio, storage, lp)
+    timezone   $TIMEZONE
+    locale     $LOCALE
+    keymap     $KEYMAP
+    groups     core + session + tui$( (( WANT_DEV )) && printf ' + dev' )$( (( WANT_LAPTOP )) && printf ' + laptop' )$( (( WANT_GUI )) && printf ' + gui' )
+
+${C_RED}${C_B}==========================================================================${C_RESET}
+EOF
+
+    if (( DRY_RUN )); then
+        printf '\n%sdry run: the commands below would run, but nothing will.%s\n' "$C_YEL" "$C_RESET"
+        return 0
+    fi
+
+    printf '\n'
+    local typed
+    typed=$(ask "Type the disk path exactly to confirm ($DISK)" "")
+    [[ $typed == "$DISK" ]] || die "that did not match; nothing has been changed"
+}
+
+# --- 4. disk -----------------------------------------------------------------
+
+partition_disk() {
+    step "Partitioning $DISK"
+
+    # Close anything still holding the disk from an earlier attempt.
+    if [[ -e /dev/mapper/$MAPPER ]]; then
+        runq cryptsetup close "$MAPPER" || true
+    fi
+    runq umount -R "$TARGET" 2>/dev/null || true
+    runq wipefs -a "$DISK"
+    runq sgdisk --zap-all "$DISK"
+
+    local root_type
+    (( ENCRYPT )) && root_type="8309" || root_type="8304"
+
+    runq sgdisk \
+        -n "1:0:+$ESP_SIZE" -t 1:ef00 -c 1:"EFI system partition" \
+        -n "2:0:0"          -t "2:$root_type" -c 2:"loom root" \
+        "$DISK"
+    runq partprobe "$DISK"
+    (( DRY_RUN )) || sleep 2
+    ok "two partitions created"
+}
+
+part_path() {
+    # nvme0n1 -> nvme0n1p1 ; sda -> sda1
+    local n="$1"
+    if [[ $DISK =~ [0-9]$ ]]; then
+        printf '%sp%s' "$DISK" "$n"
+    else
+        printf '%s%s' "$DISK" "$n"
+    fi
+}
+
+ESP_PART=""
+ROOT_PART=""
+ROOT_DEV=""
+LUKS_UUID=""
+BTRFS_UUID=""
+
+encrypt_and_format() {
+    ESP_PART=$(part_path 1)
+    ROOT_PART=$(part_path 2)
+
+    step "Formatting the ESP"
+    runq mkfs.fat -F32 -n LOOMBOOT "$ESP_PART"
+    ok "$ESP_PART is FAT32"
+
+    if (( ENCRYPT )); then
+        step "Creating the LUKS2 container"
+        note "you will be asked for a passphrase, twice, and then once more to open it"
+        note "this is the passphrase that unlocks the machine at every boot"
+        # argon2id with a deliberate cost: this is the only thing standing
+        # between a stolen laptop and its contents.
+        run cryptsetup luksFormat \
+            --type luks2 \
+            --cipher aes-xts-plain64 \
+            --key-size 512 \
+            --hash sha512 \
+            --pbkdf argon2id \
+            --use-random \
+            --label LOOMROOT \
+            "$ROOT_PART"
+        run cryptsetup open "$ROOT_PART" "$MAPPER"
+        ROOT_DEV="/dev/mapper/$MAPPER"
+        ok "LUKS2 container open at $ROOT_DEV"
+    else
+        ROOT_DEV="$ROOT_PART"
+        warn "no encryption: anything with physical access can read this disk"
+    fi
+
+    step "Creating the Btrfs filesystem"
+    runq mkfs.btrfs -f -L loom "$ROOT_DEV"
+    ok "Btrfs created on $ROOT_DEV"
+}
+
+SUBVOL_OPTS="noatime,compress=zstd:1,ssd,discard=async,space_cache=v2"
+
+create_subvolumes() {
+    step "Creating subvolumes"
+    runq mount "$ROOT_DEV" "$TARGET"
+
+    local sv
+    for sv in @ @home @snapshots @log @cache @containers; do
+        runq btrfs subvolume create "$TARGET/$sv"
+        ok "$sv"
+    done
+    if (( SWAP_GIB > 0 )); then
+        runq btrfs subvolume create "$TARGET/@swap"
+        ok "@swap"
+    fi
+
+    runq umount "$TARGET"
+}
+
+mount_subvolumes() {
+    step "Mounting"
+    runq mount -o "subvol=@,$SUBVOL_OPTS" "$ROOT_DEV" "$TARGET"
+    runq mkdir -p "$TARGET"/{efi,home,.snapshots,var/log,var/cache,var/lib/containers}
+    runq mount -o "subvol=@home,$SUBVOL_OPTS"       "$ROOT_DEV" "$TARGET/home"
+    runq mount -o "subvol=@snapshots,$SUBVOL_OPTS"  "$ROOT_DEV" "$TARGET/.snapshots"
+    runq mount -o "subvol=@log,$SUBVOL_OPTS"        "$ROOT_DEV" "$TARGET/var/log"
+    runq mount -o "subvol=@cache,$SUBVOL_OPTS"      "$ROOT_DEV" "$TARGET/var/cache"
+    # Copy-on-write plus an overlay store is a recipe for fragmentation.
+    runq mount -o "subvol=@containers,nodatacow,noatime" "$ROOT_DEV" "$TARGET/var/lib/containers"
+    runq mount "$ESP_PART" "$TARGET/efi"
+    ok "filesystems mounted under $TARGET"
+
+    if (( SWAP_GIB > 0 )); then
+        step "Creating the swapfile"
+        runq mkdir -p "$TARGET/swap"
+        runq mount -o "subvol=@swap,nodatacow,noatime" "$ROOT_DEV" "$TARGET/swap"
+        # mkswapfile does the nodatacow/nodatasum dance that a swapfile on Btrfs
+        # requires; doing it by hand with dd is how people corrupt one.
+        runq btrfs filesystem mkswapfile --size "${SWAP_GIB}g" "$TARGET/swap/swapfile"
+        runq swapon "$TARGET/swap/swapfile"
+        ok "${SWAP_GIB}GiB swapfile active"
+    fi
+}
+
+# --- 5. base system ----------------------------------------------------------
+
+install_base() {
+    step "Installing the base system"
+    note "this is the long part; pacstrap is downloading a few hundred megabytes"
+
+    if command -v reflector >/dev/null 2>&1; then
+        runq reflector --latest 20 --protocol https --sort rate \
+            --save /etc/pacman.d/mirrorlist || warn "reflector failed; using the shipped mirrorlist"
+    fi
+
+    # Just enough to boot and to run bootstrap.sh. Everything else is installed
+    # from the package lists by bootstrap, inside the chroot.
+    run pacstrap -K "$TARGET" \
+        base linux linux-firmware \
+        amd-ucode intel-ucode \
+        btrfs-progs cryptsetup \
+        mkinitcpio sudo polkit \
+        networkmanager \
+        rsync git \
+        bash fish \
+        neovim
+    ok "base system installed"
+
+    step "Writing fstab"
+    if (( DRY_RUN )); then
+        note "would append 'genfstab -U -p $TARGET' to $TARGET/etc/fstab"
+    else
+        genfstab -U -p "$TARGET" >>"$TARGET/etc/fstab"
+        # genfstab records the swapfile with a subvol= option that swapon cannot
+        # use: the file is already inside the @swap mount.
+        sed -i '/swapfile/s/subvol=[^, ]*,//' "$TARGET/etc/fstab" 2>/dev/null || true
+        ok "fstab written"
+        sed 's/^/    /' "$TARGET/etc/fstab"
+    fi
+}
+
+configure_base() {
+    step "Configuring the new system"
+
+    if (( DRY_RUN )); then
+        note "would set hostname, locale, timezone, and the kernel command line"
+        return 0
+    fi
+
+    printf '%s\n' "$HOSTNAME_" >"$TARGET/etc/hostname"
+    cat >"$TARGET/etc/hosts" <<EOF
+127.0.0.1   localhost
+::1         localhost
+127.0.1.1   $HOSTNAME_.localdomain $HOSTNAME_
+EOF
+
+    ln -sf "/usr/share/zoneinfo/$TIMEZONE" "$TARGET/etc/localtime"
+    arch-chroot "$TARGET" hwclock --systohc 2>/dev/null || true
+
+    sed -i "s/^#\(${LOCALE//./\\.} \)/\1/" "$TARGET/etc/locale.gen"
+    grep -q "^${LOCALE} " "$TARGET/etc/locale.gen" || printf '%s UTF-8\n' "$LOCALE" >>"$TARGET/etc/locale.gen"
+    arch-chroot "$TARGET" locale-gen >>"$LOOM_LOG" 2>&1
+    printf 'LANG=%s\n' "$LOCALE" >"$TARGET/etc/locale.conf"
+    ok "locale $LOCALE"
+
+    # The console font comes from the payload's vconsole.conf; only the keymap
+    # is a per-install answer.
+    install -Dm644 "$PAYLOAD/rootfs/etc/vconsole.conf" "$TARGET/etc/vconsole.conf"
+    sed -i "s/^KEYMAP=.*/KEYMAP=$KEYMAP/" "$TARGET/etc/vconsole.conf"
+    ok "keymap $KEYMAP, console font ter-132b"
+
+    # mkinitcpio.conf.d is laid down by bootstrap, but mkinitcpio needs it
+    # before bootstrap builds an image, so put it in place now.
+    install -Dm644 "$PAYLOAD/rootfs/etc/mkinitcpio.conf.d/loom.conf" \
+        "$TARGET/etc/mkinitcpio.conf.d/loom.conf"
+    install -Dm644 "$PAYLOAD/rootfs/etc/mkinitcpio-rescue.conf" \
+        "$TARGET/etc/mkinitcpio-rescue.conf"
+
+    write_cmdline
+    create_user
+}
+
+write_cmdline() {
+    BTRFS_UUID=$(blkid -s UUID -o value "$ROOT_DEV")
+    local cmdline
+
+    if (( ENCRYPT )); then
+        LUKS_UUID=$(blkid -s UUID -o value "$ROOT_PART")
+        [[ -n $LUKS_UUID ]] || die "could not read the LUKS partition UUID"
+        # sd-encrypt reads this; systemd-cryptsetup then finds any TPM2 token in
+        # the LUKS header on its own, which is why there is no tpm2 option here.
+        cmdline="rd.luks.name=$LUKS_UUID=$MAPPER root=/dev/mapper/$MAPPER"
+    else
+        cmdline="root=UUID=$BTRFS_UUID"
+    fi
+    cmdline+=" rootflags=subvol=@ rw quiet loglevel=3 nowatchdog"
+
+    install -Dm644 /dev/null "$TARGET/etc/kernel/cmdline"
+    printf '%s\n' "$cmdline" >"$TARGET/etc/kernel/cmdline"
+    ok "kernel command line:"
+    printf '      %s\n' "$cmdline"
+}
+
+create_user() {
+    step "Accounts"
+    arch-chroot "$TARGET" useradd -m -G wheel -s /usr/bin/fish "$USERNAME"
+    ok "created $USERNAME"
+
+    printf '\n  %sSet a password for %s:%s\n' "$C_B" "$USERNAME" "$C_RESET"
+    until arch-chroot "$TARGET" passwd "$USERNAME"; do
+        warn "try again"
+    done
+
+    printf '\n  %sSet the root password:%s\n' "$C_B" "$C_RESET"
+    note "you will almost never use it -- $USERNAME has sudo -- but a machine with"
+    note "no root password and a broken sudo is a machine you cannot repair."
+    until arch-chroot "$TARGET" passwd root; do
+        warn "try again"
+    done
+}
+
+# --- 6. bootloader -----------------------------------------------------------
+
+install_bootloader() {
+    step "Bootloader"
+
+    if (( DRY_RUN )); then
+        note "would install systemd-boot to /efi and write loader.conf"
+        return 0
+    fi
+
+    arch-chroot "$TARGET" bootctl --esp-path=/efi install >>"$LOOM_LOG" 2>&1
+    ok "systemd-boot installed"
+
+    # No entry files: systemd-boot discovers unified kernel images in
+    # /efi/EFI/Linux by itself, which is one fewer thing to keep in sync.
+    cat >"$TARGET/efi/loader/loader.conf" <<EOF
+default      loom-linux.efi
+timeout      3
+console-mode keep
+# Editing the command line at boot would let anyone with the keyboard add
+# init=/bin/sh and walk straight past your login. The rescue entry is the
+# supported way in.
+editor       no
+EOF
+    ok "loader.conf written (3s menu, command-line editing off)"
+    mkdir -p "$TARGET/efi/EFI/Linux"
+}
+
+# --- 7. loom proper ---------------------------------------------------------
+
+run_bootstrap() {
+    step "Installing Loom"
+
+    if (( DRY_RUN )); then
+        note "would copy the payload into the new system and run bootstrap.sh"
+        return 0
+    fi
+
+    mkdir -p "$TARGET/usr/share/loom-payload"
+    rsync -a "$PAYLOAD/" "$TARGET/usr/share/loom-payload/"
+    ok "payload copied to /usr/share/loom-payload"
+
+    local -a args=(--user "$USERNAME" --yes)
+    (( WANT_GUI ))    || args+=(--no-gui)
+    (( WANT_DEV ))    || args+=(--no-dev)
+    (( WANT_LAPTOP )) || args+=(--no-laptop)
+
+    arch-chroot "$TARGET" /usr/share/loom-payload/scripts/bootstrap.sh "${args[@]}" \
+        || die "bootstrap failed inside the chroot; see $TARGET/var/log/loom-setup.log"
+}
+
+# --- 8. secure boot ---------------------------------------------------------
+
+configure_secureboot() {
+    (( SECUREBOOT )) || return 0
+    step "Secure Boot"
+
+    if (( DRY_RUN )); then
+        note "would create keys with sbctl, enrol them if the firmware is in setup mode, and sign"
+        return 0
+    fi
+
+    if ! arch-chroot "$TARGET" sbctl status 2>/dev/null | grep -q 'Setup Mode:.*Enabled'; then
+        warn "the firmware is not in Setup Mode, so keys cannot be enrolled now"
+        note "Loom is installed and will boot. To finish Secure Boot later:"
+        note "  1. reboot into the firmware setup and clear the existing keys"
+        note "     (often called 'Restore Factory Keys' then 'Delete all keys')"
+        note "  2. boot Loom and run: sudo sbctl create-keys && sudo sbctl enroll-keys -m"
+        note "  3. sudo loomctl rebuild-boot, then turn Secure Boot on"
+        note "See docs/secure-boot.md."
+        return 0
+    fi
+
+    arch-chroot "$TARGET" sbctl create-keys >>"$LOOM_LOG" 2>&1 \
+        || { warn "sbctl create-keys failed; skipping"; return 0; }
+    ok "keys created in /var/lib/sbctl"
+
+    # -m keeps Microsoft's certificates enrolled. Without them, firmware and
+    # option ROMs signed only by Microsoft stop working, and on some machines
+    # that means no display output at all.
+    if arch-chroot "$TARGET" sbctl enroll-keys -m >>"$LOOM_LOG" 2>&1; then
+        ok "keys enrolled (Microsoft certificates kept)"
+    else
+        warn "enrolment failed; the firmware may not have been in setup mode after all"
+        return 0
+    fi
+
+    if arch-chroot "$TARGET" /usr/local/bin/loom-sign-boot >>"$LOOM_LOG" 2>&1; then
+        ok "all boot payloads signed"
+    else
+        warn "signing reported errors; see $LOOM_LOG"
+    fi
+    note "turn Secure Boot on in the firmware after the first successful boot"
+}
+
+# --- 9. finish --------------------------------------------------------------
+
+finish() {
+    step "Finishing"
+
+    if (( DRY_RUN )); then
+        note "dry run complete: no disk was touched"
+        return 0
+    fi
+
+    cp -f "$LOOM_LOG" "$TARGET/var/log/loom-install.log" 2>/dev/null || true
+
+    (( SWAP_GIB > 0 )) && swapoff "$TARGET/swap/swapfile" 2>/dev/null
+    umount -R "$TARGET" 2>/dev/null || warn "could not unmount everything; that is usually harmless"
+    (( ENCRYPT )) && cryptsetup close "$MAPPER" 2>/dev/null
+
+    cat <<EOF
+
+${C_GRN}${C_B}Loom is installed on $DISK.${C_RESET}
+
+  On the first boot:
+    $( (( ENCRYPT )) && printf 'the LUKS passphrase, then' ) log in as ${C_B}$USERNAME${C_RESET} on tty1
+    zellij starts by itself -- that is the session
+    ${C_B}loomctl health${C_RESET} is the first thing worth running
+
+  Worth knowing before you need it:
+    ${C_B}tty2-tty6${C_RESET} are plain login shells. Ctrl+Alt+F2 always works.
+    The boot menu has a ${C_B}Loom Rescue${C_RESET} entry that can roll the system
+    back to a snapshot without booting it.
+
+  ${C_B}Remove the installation medium and reboot.${C_RESET}
+EOF
+
+    if ask_yn "Reboot now?" n; then
+        systemctl reboot
+    fi
+}
+
+main() {
+    preflight
+    questions
+    show_plan
+    partition_disk
+    encrypt_and_format
+    create_subvolumes
+    mount_subvolumes
+    install_base
+    configure_base
+    install_bootloader
+    run_bootstrap
+    configure_secureboot
+    finish
+}
+
+main "$@"

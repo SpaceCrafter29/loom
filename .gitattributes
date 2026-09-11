@@ -1,0 +1,6 @@
+# Loom ships shell scripts, systemd units and initramfs hooks that run on Linux.
+# CRLF in any of them is a hard boot failure, so normalise everything to LF.
+* text=auto eol=lf
+*.png binary
+*.psf binary
+*.psfu binary

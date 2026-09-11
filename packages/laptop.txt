@@ -1,0 +1,12 @@
+# Loom :: laptop
+# Power, firmware and thermals. Harmless on a desktop, but you can skip this
+# group with --no-laptop.
+
+tlp
+tlp-rdw
+powertop
+fwupd
+acpi
+upower
+brightnessctl
+thermald

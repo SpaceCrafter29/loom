@@ -1,0 +1,716 @@
+#!/usr/bin/env bash
+# loomctl -- the one command Loom asks you to learn.
+#
+# Loom, by SpaceCrafter29 -- https://github.com/SpaceCrafter29/loom
+#
+#   loomctl update          upgrade the system, snapshot it, re-sign the boot
+#   loomctl rollback        put the root filesystem back the way it was
+#   loomctl health          tell me what is wrong with this machine
+#
+# Everything else is a smaller piece of one of those three.
+
+set -uo pipefail
+
+LOOM_CONF="${LOOM_CONF:-/etc/loom/loom.conf}"
+TOP_MNT="/run/loom/btrfs-top"
+STAMP_DIR="/var/lib/loom"
+PROG="${0##*/}"
+
+# --- config ------------------------------------------------------------------
+
+# Defaults, so loomctl still works if loom.conf is missing or truncated.
+LOOM_NAME="Loom"
+LOOM_VERSION="unknown"
+LOOM_AUTHOR="SpaceCrafter29"
+LOOM_URL="https://github.com/SpaceCrafter29/loom"
+LOOM_ESP="/efi"
+LOOM_UKI_DIR="/efi/EFI/Linux"
+LOOM_SECUREBOOT="1"
+LOOM_REBUILD_UKI="1"
+LOOM_REQUIRE_NEWS="1"
+LOOM_REFLECTOR="1"
+LOOM_REFLECTOR_COUNTRY=""
+LOOM_SNAPSHOT_ON_UPDATE="1"
+LOOM_GUI_COMPOSITOR="cage"
+LOOM_GUI_SESSION="river"
+LOOM_GUI_BROWSER="firefox"
+LOOM_SNAPSHOT_KEEP_NUMBER="12"
+
+# shellcheck source=/dev/null
+[[ -r $LOOM_CONF ]] && . "$LOOM_CONF"
+
+# --- output ------------------------------------------------------------------
+
+if [[ -t 1 ]]; then
+    C_RESET=$'\033[0m'; C_DIM=$'\033[2m'; C_B=$'\033[1m'
+    C_RED=$'\033[31m'; C_GRN=$'\033[32m'; C_YEL=$'\033[33m'
+    C_BLU=$'\033[34m'; C_CYN=$'\033[36m'
+else
+    C_RESET=''; C_DIM=''; C_B=''; C_RED=''; C_GRN=''; C_YEL=''; C_BLU=''; C_CYN=''
+fi
+
+step() { printf '%s==>%s %s%s%s\n' "$C_BLU$C_B" "$C_RESET" "$C_B" "$*" "$C_RESET"; }
+ok()   { printf '  %s+%s %s\n' "$C_GRN$C_B" "$C_RESET" "$*"; }
+note() { printf '  %s.%s %s\n' "$C_DIM" "$C_RESET" "$*"; }
+warn() { printf '  %s!%s %s\n' "$C_YEL$C_B" "$C_RESET" "$*"; }
+bad()  { printf '  %sx%s %s\n' "$C_RED$C_B" "$C_RESET" "$*"; }
+die()  { printf '%s%s: %s%s\n' "$C_RED$C_B" "$PROG" "$*" "$C_RESET" >&2; exit 1; }
+
+HEALTH_PROBLEMS=0
+fail_health() { HEALTH_PROBLEMS=$((HEALTH_PROBLEMS + 1)); bad "$*"; }
+
+need_root() {
+    [[ $EUID -eq 0 ]] || die "'$1' needs root. Try: sudo $PROG $1"
+}
+
+have() { command -v "$1" >/dev/null 2>&1; }
+installed() { pacman -Qq "$1" >/dev/null 2>&1; }
+
+confirm() {
+    local ans
+    read -r -p "$1 [y/N] " ans || true
+    [[ $ans == [yY] || $ans == yes ]]
+}
+
+# --- btrfs helpers -----------------------------------------------------------
+
+root_device() {
+    findmnt -no SOURCE -T / 2>/dev/null | sed 's/\[.*\]$//'
+}
+
+# Mount the Btrfs top level so that @ and @snapshots are both reachable as
+# plain directories. Idempotent.
+mount_top() {
+    local dev
+    dev=$(root_device) || return 1
+    [[ -n $dev ]] || { bad "cannot determine the root device"; return 1; }
+
+    mkdir -p "$TOP_MNT"
+    if findmnt -rn "$TOP_MNT" >/dev/null 2>&1; then
+        return 0
+    fi
+    mount -t btrfs -o subvolid=5,rw "$dev" "$TOP_MNT" || {
+        bad "could not mount the Btrfs top level"
+        return 1
+    }
+    return 0
+}
+
+umount_top() {
+    findmnt -rn "$TOP_MNT" >/dev/null 2>&1 && umount "$TOP_MNT" 2>/dev/null
+    return 0
+}
+
+is_btrfs_root() {
+    [[ $(findmnt -no FSTYPE -T / 2>/dev/null) == btrfs ]]
+}
+
+# --- version -----------------------------------------------------------------
+
+cmd_version() {
+    printf '%s%s%s %s\n' "$C_CYN$C_B" "$LOOM_NAME" "$C_RESET" "$LOOM_VERSION"
+    printf '  kernel     %s\n' "$(uname -r)"
+    if is_btrfs_root; then
+        printf '  root       %s (btrfs, subvol %s)\n' "$(root_device)" \
+            "$(findmnt -no OPTIONS -T / | tr ',' '\n' | grep '^subvol=' | head -n1 | cut -d= -f2)"
+    else
+        printf '  root       %s (%s)\n' "$(root_device)" "$(findmnt -no FSTYPE -T / 2>/dev/null)"
+    fi
+    if have sbctl; then
+        printf '  secureboot %s\n' "$(sbctl status 2>/dev/null | sed -n 's/^Secure Boot:[[:space:]]*//p' | head -n1)"
+    fi
+    if have snapper; then
+        printf '  snapshots  %s on / \n' "$(snapper -c root list --columns number 2>/dev/null | grep -c '^[0-9]' || echo 0)"
+    fi
+    printf '\n%sby %s -- %s%s\n' "$C_DIM" "$LOOM_AUTHOR" "$LOOM_URL" "$C_RESET"
+}
+
+# --- news --------------------------------------------------------------------
+
+cmd_news() {
+    if installed informant; then
+        need_root news
+        informant read
+        return $?
+    fi
+    step "Arch Linux news"
+    note "the 'informant' package is not installed, so there is nothing to gate"
+    note "upgrades on. Install it with: loomctl aur-install informant"
+    if have w3m; then
+        confirm "Open the news feed in w3m?" && w3m https://archlinux.org/news/
+    else
+        note "read it at https://archlinux.org/news/"
+    fi
+}
+
+news_gate() {
+    # Returns 1 if there is unread news that should block an upgrade.
+    [[ $LOOM_REQUIRE_NEWS == 1 ]] || return 0
+    installed informant || return 0
+    if ! informant check >/dev/null 2>&1; then
+        warn "there is unread Arch Linux news"
+        note "read it with: sudo $PROG news"
+        note "rolling release means the news is the changelog. Do not skip it."
+        return 1
+    fi
+    return 0
+}
+
+# --- mirrors -----------------------------------------------------------------
+
+refresh_mirrors() {
+    [[ $LOOM_REFLECTOR == 1 ]] || return 0
+    have reflector || return 0
+
+    local stamp="$STAMP_DIR/reflector.stamp"
+    mkdir -p "$STAMP_DIR"
+    if [[ -f $stamp ]]; then
+        local age now
+        now=$(date +%s)
+        age=$(( now - $(stat -c %Y "$stamp") ))
+        if (( age < 86400 )); then
+            note "mirrorlist refreshed $(( age / 3600 ))h ago; skipping"
+            return 0
+        fi
+    fi
+
+    step "Refreshing mirrorlist"
+    local -a args=(--latest 20 --protocol https --sort rate --save /etc/pacman.d/mirrorlist)
+    [[ -n $LOOM_REFLECTOR_COUNTRY ]] && args+=(--country "$LOOM_REFLECTOR_COUNTRY")
+    if reflector "${args[@]}" >/dev/null 2>&1; then
+        touch "$stamp"
+        ok "mirrorlist updated"
+    else
+        warn "reflector failed; keeping the existing mirrorlist"
+    fi
+}
+
+# --- snapshots ---------------------------------------------------------------
+
+cmd_snapshots() {
+    is_btrfs_root || die "the root filesystem is not Btrfs; there are no snapshots"
+    have snapper || die "snapper is not installed"
+    step "Snapshots of /"
+    snapper -c root list
+    if snapper -c home list >/dev/null 2>&1; then
+        printf '\n'
+        step "Snapshots of /home"
+        snapper -c home list
+    fi
+    printf '\n'
+    step "Space"
+    btrfs filesystem usage / 2>/dev/null | sed 's/^/  /'
+}
+
+cmd_snapshot() {
+    need_root snapshot
+    have snapper || die "snapper is not installed"
+    local desc="${*:-manual snapshot}"
+    step "Creating a snapshot of /"
+    local num
+    num=$(snapper -c root create --type single --cleanup-algorithm number \
+          --description "$desc" --print-number) || die "snapper failed"
+    ok "snapshot $num: $desc"
+}
+
+# --- rollback ----------------------------------------------------------------
+
+# Loom mounts its root with rootflags=subvol=@, which means the Btrfs "default
+# subvolume" mechanism (and therefore `snapper rollback`) has no effect here.
+# Rollback is instead a rename: @ is moved aside and recreated from a snapshot.
+# Renaming the live root subvolume is legal on Btrfs -- the running system keeps
+# using it by inode -- but everything written between now and the reboot goes
+# into the discarded copy, so we reboot promptly.
+cmd_rollback() {
+    need_root rollback
+    is_btrfs_root || die "the root filesystem is not Btrfs"
+    have snapper || die "snapper is not installed"
+
+    local target="${1:-}"
+
+    if [[ -z $target ]]; then
+        step "Snapshots of /"
+        snapper -c root list
+        printf '\n'
+        read -r -p "Roll back to which snapshot number? (blank to abort) " target || true
+        [[ -z $target ]] && { note "aborted"; return 0; }
+    fi
+
+    [[ $target =~ ^[0-9]+$ ]] || die "'$target' is not a snapshot number"
+
+    mount_top || die "could not reach the Btrfs top level"
+
+    local src="$TOP_MNT/@snapshots/$target/snapshot"
+    local live="$TOP_MNT/@"
+    local stamp broken
+    stamp=$(date +%Y%m%d-%H%M%S)
+    broken="$TOP_MNT/@.broken-$stamp"
+
+    if [[ ! -d $src ]]; then
+        umount_top
+        die "snapshot $target does not exist at $src"
+    fi
+
+    step "Rollback plan"
+    note "restore:  snapshot $target"
+    note "          $(snapper -c root list --columns number,date,description 2>/dev/null | awk -v n="$target" '$1==n')"
+    note "aside:    @ -> @.broken-$stamp  (kept; delete it later)"
+    note "untouched: /home, /var/log, the ESP and the kernel images"
+    warn "anything written to / after this point is lost at the reboot"
+    printf '\n'
+
+    if ! confirm "Roll / back to snapshot $target?"; then
+        umount_top
+        note "aborted"
+        return 0
+    fi
+
+    if [[ -e $broken ]]; then
+        umount_top
+        die "$broken already exists; refusing to clobber it"
+    fi
+
+    step "Rolling back"
+    if ! mv -- "$live" "$broken"; then
+        umount_top
+        die "could not rename @; nothing has changed"
+    fi
+    ok "current root moved to @.broken-$stamp"
+
+    if ! btrfs subvolume snapshot "$src" "$live" >/dev/null; then
+        bad "could not create the new @ -- putting the old one back"
+        mv -- "$broken" "$live" || bad "RESTORE FAILED. Your root is at @.broken-$stamp."
+        umount_top
+        die "rollback aborted"
+    fi
+    ok "@ recreated from snapshot $target"
+
+    umount_top
+
+    printf '\n'
+    warn "reboot now: the kernel you are running is the old one"
+    note "if this snapshot predates a kernel upgrade, boot 'Loom Rescue',"
+    note "chroot in, and run: loomctl rebuild-boot"
+    printf '\n'
+    if confirm "Reboot now?"; then
+        systemctl reboot
+    fi
+}
+
+cmd_prune_broken() {
+    need_root prune-broken
+    mount_top || die "could not reach the Btrfs top level"
+    local -a found=()
+    local d
+    for d in "$TOP_MNT"/@.broken-*; do
+        [[ -d $d ]] && found+=("$d")
+    done
+    if (( ${#found[@]} == 0 )); then
+        ok "no abandoned root subvolumes"
+        umount_top
+        return 0
+    fi
+    step "Abandoned roots from previous rollbacks"
+    for d in "${found[@]}"; do
+        note "$(basename "$d")"
+    done
+    if confirm "Delete all ${#found[@]} of them?"; then
+        for d in "${found[@]}"; do
+            btrfs subvolume delete "$d" >/dev/null && ok "deleted $(basename "$d")"
+        done
+    fi
+    umount_top
+}
+
+# --- boot --------------------------------------------------------------------
+
+cmd_rebuild_boot() {
+    need_root rebuild-boot
+    step "Rebuilding unified kernel images"
+    # -P covers every preset in /etc/mkinitcpio.d, which includes loom-rescue.
+    # Calling loom-build-rescue as well would just build the rescue image twice.
+    mkinitcpio -P || die "mkinitcpio failed -- do NOT reboot until this succeeds"
+    ok "kernel images rebuilt"
+
+    if [[ -f /etc/mkinitcpio.d/loom-rescue.preset && ! -f $LOOM_UKI_DIR/loom-rescue.efi ]]; then
+        warn "the rescue preset exists but $LOOM_UKI_DIR/loom-rescue.efi does not"
+        note "build it on its own to see why: sudo loom-build-rescue"
+    fi
+
+    cmd_sign_boot
+}
+
+cmd_sign_boot() {
+    need_root sign-boot
+    [[ $LOOM_SECUREBOOT == 1 ]] || { note "Secure Boot disabled in loom.conf; not signing"; return 0; }
+    have sbctl || { warn "sbctl is not installed; not signing"; return 0; }
+    step "Signing boot payloads"
+    /usr/local/bin/loom-sign-boot
+}
+
+# --- update ------------------------------------------------------------------
+
+cmd_update() {
+    need_root update
+    # tmpfiles normally creates this, but loomctl must work on the very first
+    # boot too, before the timer has ever fired.
+    mkdir -p "$STAMP_DIR"
+
+    local -a pac_args=(-Syu)
+    local aur=0 dry=0 arg
+    for arg in "$@"; do
+        case $arg in
+            --aur)     aur=1 ;;
+            --dry-run) dry=1 ;;
+            --no-confirm|--noconfirm) pac_args+=(--noconfirm) ;;
+            *) die "unknown option for update: $arg" ;;
+        esac
+    done
+
+    if (( dry )); then
+        step "Pending updates"
+        if have checkupdates; then
+            checkupdates || note "nothing to do"
+        else
+            pacman -Sy >/dev/null && pacman -Qu
+        fi
+        return 0
+    fi
+
+    news_gate || die "refusing to upgrade with unread news (set LOOM_REQUIRE_NEWS=0 to override)"
+
+    refresh_mirrors
+
+    local kernel_before modules_before
+    kernel_before=$(pacman -Q linux 2>/dev/null | awk '{print $2}')
+    modules_before=$(uname -r)
+
+    # snap-pac puts a pre/post snapshot around every pacman transaction by
+    # itself. Only do it by hand when snap-pac is not installed.
+    local manual_snapshot=0
+    if [[ $LOOM_SNAPSHOT_ON_UPDATE == 1 ]] && have snapper && ! installed snap-pac; then
+        manual_snapshot=1
+        step "Pre-update snapshot"
+        snapper -c root create --type pre --cleanup-algorithm number \
+            --description "loomctl update" --print-number >"$STAMP_DIR/.pre" 2>/dev/null \
+            && ok "snapshot $(cat "$STAMP_DIR/.pre")"
+    fi
+
+    step "Upgrading"
+    if ! pacman "${pac_args[@]}"; then
+        bad "pacman failed"
+        note "the pre-update snapshot is intact: sudo $PROG rollback"
+        return 1
+    fi
+
+    if (( manual_snapshot )); then
+        snapper -c root create --type post --cleanup-algorithm number \
+            --pre-number "$(cat "$STAMP_DIR/.pre" 2>/dev/null)" \
+            --description "loomctl update" >/dev/null 2>&1 || true
+        rm -f "$STAMP_DIR/.pre"
+    fi
+
+    local kernel_after
+    kernel_after=$(pacman -Q linux 2>/dev/null | awk '{print $2}')
+    if [[ $kernel_before != "$kernel_after" ]]; then
+        note "kernel $kernel_before -> $kernel_after"
+        if [[ $LOOM_REBUILD_UKI == 1 ]]; then
+            cmd_rebuild_boot
+        fi
+    else
+        cmd_sign_boot
+    fi
+
+    if (( aur )); then
+        step "Upgrading AUR packages"
+        if have paru; then
+            # Never run the AUR helper as root; it refuses, and rightly so.
+            local target_user="${SUDO_USER:-}"
+            if [[ -n $target_user ]]; then
+                sudo -u "$target_user" paru -Sua || warn "paru reported errors"
+            else
+                warn "cannot determine the invoking user; run 'paru -Sua' yourself"
+            fi
+        else
+            warn "paru is not installed; skipping AUR"
+        fi
+    fi
+
+    step "Post-update check"
+    check_reboot "$modules_before"
+    check_pacnew
+    check_failed_units
+    check_esp_space
+
+    printf '\n'
+    if (( HEALTH_PROBLEMS == 0 )); then
+        ok "update complete, nothing to clean up"
+    else
+        warn "update complete with $HEALTH_PROBLEMS thing(s) to look at above"
+    fi
+}
+
+# --- health ------------------------------------------------------------------
+
+check_reboot() {
+    local running="${1:-$(uname -r)}"
+    if [[ ! -d /usr/lib/modules/$running ]]; then
+        warn "reboot needed: the modules for the running kernel ($running) are gone"
+        return 0
+    fi
+    ok "running kernel's modules are still installed"
+}
+
+check_pacnew() {
+    local -a files=()
+    mapfile -t files < <(find /etc /boot -name '*.pacnew' -o -name '*.pacsave' 2>/dev/null)
+    if (( ${#files[@]} == 0 )); then
+        ok "no .pacnew files"
+        return 0
+    fi
+    warn "${#files[@]} config file(s) need merging:"
+    local f
+    for f in "${files[@]}"; do note "$f"; done
+    note "merge them with: pacdiff   (install pacman-contrib if missing)"
+}
+
+check_failed_units() {
+    local -a failed=()
+    mapfile -t failed < <(systemctl list-units --state=failed --no-legend --plain 2>/dev/null | awk '{print $1}')
+    if (( ${#failed[@]} == 0 )); then
+        ok "no failed systemd units"
+        return 0
+    fi
+    fail_health "${#failed[@]} failed unit(s): ${failed[*]}"
+}
+
+check_esp_space() {
+    [[ -d $LOOM_ESP ]] || { fail_health "the ESP is not mounted at $LOOM_ESP"; return 0; }
+    local avail_kb avail_mb
+    avail_kb=$(df -k --output=avail "$LOOM_ESP" 2>/dev/null | tail -n1 | tr -d ' ')
+    [[ -z $avail_kb ]] && return 0
+    avail_mb=$(( avail_kb / 1024 ))
+    # A UKI is ~40-80 MB and the rescue image is ~100 MB. Running the ESP dry is
+    # the classic way to end an upgrade with no bootable kernel.
+    if (( avail_mb < 200 )); then
+        fail_health "only ${avail_mb}MB free on the ESP -- a kernel rebuild may not fit"
+        note "clear old images: ls -la $LOOM_UKI_DIR"
+    else
+        ok "ESP has ${avail_mb}MB free"
+    fi
+}
+
+check_uki() {
+    local -a ukis=()
+    mapfile -t ukis < <(find "$LOOM_UKI_DIR" -maxdepth 1 -name '*.efi' 2>/dev/null)
+    if (( ${#ukis[@]} == 0 )); then
+        fail_health "no unified kernel images in $LOOM_UKI_DIR"
+        return 0
+    fi
+    ok "${#ukis[@]} kernel image(s) in $LOOM_UKI_DIR"
+    local u
+    for u in "${ukis[@]}"; do
+        note "$(basename "$u") ($(du -h "$u" | cut -f1))"
+    done
+    if [[ ! -f $LOOM_UKI_DIR/loom-rescue.efi ]]; then
+        warn "no rescue image -- you have no offline rollback path"
+        note "build it with: sudo loom-build-rescue"
+    fi
+}
+
+check_secureboot() {
+    have sbctl || { note "sbctl not installed; skipping Secure Boot checks"; return 0; }
+
+    # sbctl verify has to read the ESP, so it needs root. /etc/sudoers.d/loom
+    # grants wheel a passwordless exception for exactly these two read-only
+    # queries, so that `loomctl health` works without sudo.
+    local -a SB=(sbctl)
+    if [[ $EUID -ne 0 ]]; then
+        SB=(sudo -n sbctl)
+        if ! sudo -n true 2>/dev/null; then
+            note "run 'loomctl health' with sudo for the Secure Boot checks"
+            return 0
+        fi
+    fi
+
+    local status
+    status=$("${SB[@]}" status 2>/dev/null)
+    if grep -q 'Secure Boot:.*enabled' <<<"$status"; then
+        ok "Secure Boot is enabled"
+    elif grep -q 'Setup Mode:.*enabled' <<<"$status"; then
+        warn "firmware is in Setup Mode -- keys can be enrolled but are not active"
+    else
+        warn "Secure Boot is not enabled in the firmware"
+    fi
+    if ! "${SB[@]}" verify >/dev/null 2>&1; then
+        fail_health "sbctl verify reports unsigned boot files"
+        "${SB[@]}" verify 2>&1 | sed 's/^/      /' | head -n 20
+    else
+        ok "all tracked boot files are signed"
+    fi
+}
+
+check_snapshots() {
+    is_btrfs_root || { note "root is not Btrfs; no snapshots to check"; return 0; }
+    have snapper || { fail_health "snapper is not installed; you have no rollback"; return 0; }
+    if ! findmnt -rn /.snapshots >/dev/null 2>&1; then
+        fail_health "/.snapshots is not mounted -- snapshots would live inside @ and"
+        note "      be destroyed by the very rollback they are meant to enable"
+        return 0
+    fi
+    local n
+    n=$(snapper -c root list --columns number 2>/dev/null | grep -c '^[0-9]')
+    if (( n == 0 )); then
+        warn "no snapshots of / exist yet"
+    else
+        ok "$n snapshot(s) of /"
+    fi
+    installed snap-pac && ok "snap-pac is installed (pacman snapshots automatically)" \
+        || warn "snap-pac is not installed; pacman transactions are not snapshotted"
+}
+
+check_orphans() {
+    local -a orphans=()
+    mapfile -t orphans < <(pacman -Qtdq 2>/dev/null)
+    if (( ${#orphans[@]} == 0 )); then
+        ok "no orphaned packages"
+    else
+        note "${#orphans[@]} orphaned package(s); remove with: pacman -Rns \$(pacman -Qtdq)"
+    fi
+}
+
+check_timers() {
+    local t
+    for t in loom-update-prefetch.timer snapper-cleanup.timer fstrim.timer; do
+        if systemctl is-enabled "$t" >/dev/null 2>&1; then
+            ok "$t enabled"
+        else
+            warn "$t is not enabled"
+        fi
+    done
+}
+
+check_btrfs_space() {
+    is_btrfs_root || return 0
+    local line pct
+    line=$(btrfs filesystem usage -g / 2>/dev/null | grep -m1 'Free (estimated)')
+    [[ -n $line ]] && note "btrfs $line"
+    pct=$(df --output=pcent / 2>/dev/null | tail -n1 | tr -dc '0-9')
+    if [[ -n $pct ]] && (( pct > 85 )); then
+        warn "/ is ${pct}% full; old snapshots are the usual culprit"
+        note "see what they cost: sudo btrfs filesystem du -s /.snapshots"
+    fi
+}
+
+cmd_health() {
+    printf '%s%s %s%s -- health\n\n' "$C_CYN$C_B" "$LOOM_NAME" "$LOOM_VERSION" "$C_RESET"
+
+    step "Boot"
+    check_uki
+    check_esp_space
+    check_secureboot
+
+    printf '\n'
+    step "Rollback"
+    check_snapshots
+    check_btrfs_space
+
+    printf '\n'
+    step "System"
+    check_reboot
+    check_failed_units
+    check_pacnew
+    check_orphans
+    check_timers
+
+    printf '\n'
+    if (( HEALTH_PROBLEMS == 0 )); then
+        printf '%s  healthy%s\n' "$C_GRN$C_B" "$C_RESET"
+        return 0
+    fi
+    printf '%s  %d problem(s) need attention%s\n' "$C_YEL$C_B" "$HEALTH_PROBLEMS" "$C_RESET"
+    return 1
+}
+
+# --- gui ---------------------------------------------------------------------
+
+cmd_gui() {
+    exec /usr/local/bin/loom-gui "$@"
+}
+
+# --- aur ---------------------------------------------------------------------
+
+cmd_aur_install() {
+    (( $# > 0 )) || die "aur-install needs at least one package name"
+    have paru || die "paru is not installed. Run scripts/bootstrap.sh --aur, or install it by hand."
+    [[ $EUID -eq 0 ]] && die "do not run aur-install as root"
+    paru -S --needed "$@"
+}
+
+# --- usage -------------------------------------------------------------------
+
+usage() {
+    cat <<EOF
+${C_CYN}${C_B}${LOOM_NAME}${C_RESET} ${LOOM_VERSION} -- system control
+
+${C_B}usage:${C_RESET} $PROG <command> [options]
+
+${C_B}updating${C_RESET}
+  update [--aur] [--dry-run]   read the news, snapshot, upgrade, re-sign the boot
+  prefetch                     download pending updates now, install nothing
+  news                         read the Arch news that is gating an upgrade
+
+${C_B}undoing${C_RESET}
+  snapshots                    list snapshots of / and /home
+  snapshot [description]       take one now
+  rollback [number]            rebuild / from a snapshot, then reboot
+  prune-broken                 delete root subvolumes left by past rollbacks
+
+${C_B}boot${C_RESET}
+  rebuild-boot                 regenerate and re-sign every kernel image
+  sign-boot                    re-sign the ESP for Secure Boot
+
+${C_B}graphics${C_RESET}
+  gui                          start the ${LOOM_GUI_SESSION} session on this VT
+  gui <app> [args]             run one app under ${LOOM_GUI_COMPOSITOR}, nothing else
+  web [url]                    ${LOOM_GUI_BROWSER}, in a compositor of its own
+
+${C_B}other${C_RESET}
+  health                       check boot, rollback and system state
+  version                      what this is and what it is running
+  aur-install <pkg>...         build from the AUR with paru
+
+${C_DIM}When an update goes wrong: 'loomctl rollback'. When the machine will not boot
+at all: pick "Loom Rescue" in the boot menu -- it can do the same thing offline.
+
+${LOOM_NAME} ${LOOM_VERSION}, by ${LOOM_AUTHOR} -- ${LOOM_URL}${C_RESET}
+EOF
+}
+
+# --- dispatch ----------------------------------------------------------------
+
+main() {
+    local cmd="${1:-}"
+    [[ $# -gt 0 ]] && shift
+
+    case "$cmd" in
+        update)        cmd_update "$@" ;;
+        prefetch)      need_root prefetch; step "Downloading updates"; pacman -Syuw --noconfirm ;;
+        news)          cmd_news "$@" ;;
+        snapshots|ls)  cmd_snapshots "$@" ;;
+        snapshot)      cmd_snapshot "$@" ;;
+        rollback)      cmd_rollback "$@" ;;
+        prune-broken)  cmd_prune_broken "$@" ;;
+        rebuild-boot)  cmd_rebuild_boot "$@" ;;
+        sign-boot)     cmd_sign_boot "$@" ;;
+        gui)           cmd_gui "$@" ;;
+        web)           cmd_gui "$LOOM_GUI_BROWSER" "$@" ;;
+        aur-install)   cmd_aur_install "$@" ;;
+        health)        cmd_health "$@" ;;
+        version|--version) cmd_version ;;
+        help|--help|-h|"") usage ;;
+        *)             die "unknown command '$cmd'. Try: $PROG help" ;;
+    esac
+}
+
+main "$@"

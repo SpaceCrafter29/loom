@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+# Loom, by SpaceCrafter29 -- https://github.com/SpaceCrafter29/loom
+# Start the Loom session: a multiplexer on the Linux console, which is the
+# closest thing this system has to a window manager.
+#
+#   loom-session            start or attach to the session, unconditionally
+#   loom-session autostart  the same, but only if this login should own it
+#
+# Exit codes matter, because /etc/profile.d and fish's conf.d both branch on
+# them:
+#
+#   0   the session ran and exited cleanly  -> the caller should log out
+#   64  this login is not the session login -> the caller should do nothing
+#   70  the session failed to start         -> the caller should stay in a shell
+#
+# That last case is the important one. A multiplexer config that crashes on
+# start would otherwise mean a login loop and an unusable machine, so two fast
+# failures disable autostart for the rest of the boot and hand you a plain
+# shell with an explanation.
+
+set -uo pipefail
+
+LOOM_CONF="${LOOM_CONF:-/etc/loom/loom.conf}"
+LOOM_SESSION_AUTOSTART="1"
+LOOM_SESSION_TTY="tty1"
+LOOM_MULTIPLEXER="zellij"
+LOOM_ZELLIJ_SESSION="loom"
+LOOM_ZELLIJ_LAYOUT="loom"
+# shellcheck source=/dev/null
+[[ -r $LOOM_CONF ]] && . "$LOOM_CONF"
+
+RUN_DIR="/run/loom"
+DISABLE_FLAG="$RUN_DIR/no-session"
+FAIL_COUNT="$RUN_DIR/session-failures.$UID"
+FAST_FAIL_SECONDS=5
+MAX_FAST_FAILURES=2
+
+EX_NOT_HERE=64
+EX_FAILED=70
+
+note() { printf 'loom-session: %s\n' "$*" >&2; }
+
+# --- gating ------------------------------------------------------------------
+
+should_autostart() {
+    [[ $LOOM_SESSION_AUTOSTART == 1 ]] || { note "autostart disabled in loom.conf"; return 1; }
+
+    # Never take over an SSH login, a graphical terminal, or a shell that is
+    # already inside a multiplexer.
+    [[ -z ${SSH_TTY:-}${SSH_CONNECTION:-} ]] || return 1
+    [[ -z ${ZELLIJ:-} ]] || return 1
+    [[ -z ${TMUX:-} ]] || return 1
+    [[ -z ${LOOM_SESSION_STARTED:-} ]] || return 1
+
+    # tty2..tty6 are always plain login shells. That is the escape hatch: no
+    # session config can ever lock you out of your own machine.
+    local this_tty
+    this_tty=$(tty 2>/dev/null) || return 1
+    [[ $this_tty == "/dev/$LOOM_SESSION_TTY" ]] || return 1
+
+    if [[ -e $DISABLE_FLAG ]]; then
+        note "autostart is disabled for this boot ($DISABLE_FLAG exists)"
+        note "start it by hand with 'loom-session' once you have fixed the config"
+        return 1
+    fi
+    return 0
+}
+
+# --- failure accounting ------------------------------------------------------
+
+read_failures() {
+    [[ -r $FAIL_COUNT ]] && cat "$FAIL_COUNT" 2>/dev/null || echo 0
+}
+
+record_fast_failure() {
+    local n
+    n=$(read_failures)
+    n=$((n + 1))
+    mkdir -p "$RUN_DIR" 2>/dev/null
+    printf '%s' "$n" >"$FAIL_COUNT" 2>/dev/null
+
+    note "the session exited immediately (failure $n of $MAX_FAST_FAILURES)"
+    if (( n >= MAX_FAST_FAILURES )); then
+        : >"$DISABLE_FLAG" 2>/dev/null
+        note ""
+        note "autostart is now OFF until the next reboot. You have a plain shell."
+        note "Look at:  ~/.config/$LOOM_MULTIPLEXER/"
+        note "Try:      $LOOM_MULTIPLEXER   (to see the actual error)"
+        note "Re-enable: rm $DISABLE_FLAG"
+        note ""
+    fi
+}
+
+clear_failures() { rm -f "$FAIL_COUNT" 2>/dev/null; }
+
+# --- the session -------------------------------------------------------------
+
+start_zellij() {
+    command -v zellij >/dev/null 2>&1 || { note "zellij is not installed"; return 1; }
+    # attach-or-create: a reboot gives you a fresh session, but detaching and
+    # logging back in puts you exactly where you were.
+    if zellij list-sessions 2>/dev/null | grep -q "^${LOOM_ZELLIJ_SESSION}\b"; then
+        zellij attach "$LOOM_ZELLIJ_SESSION"
+    else
+        zellij --layout "$LOOM_ZELLIJ_LAYOUT" attach --create "$LOOM_ZELLIJ_SESSION"
+    fi
+}
+
+start_tmux() {
+    command -v tmux >/dev/null 2>&1 || { note "tmux is not installed"; return 1; }
+    tmux new-session -A -s "$LOOM_ZELLIJ_SESSION"
+}
+
+run_session() {
+    local start end elapsed rc
+    start=$(date +%s)
+
+    export LOOM_SESSION_STARTED=1
+    case "$LOOM_MULTIPLEXER" in
+        zellij) start_zellij ;;
+        tmux)   start_tmux ;;
+        *)      note "unknown LOOM_MULTIPLEXER '$LOOM_MULTIPLEXER'"; return 1 ;;
+    esac
+    rc=$?
+
+    end=$(date +%s)
+    elapsed=$((end - start))
+
+    if (( rc != 0 )) && (( elapsed < FAST_FAIL_SECONDS )); then
+        record_fast_failure
+        return 1
+    fi
+
+    # Anything that survived more than a few seconds counts as a real session,
+    # however it ended.
+    clear_failures
+    return 0
+}
+
+# --- main --------------------------------------------------------------------
+
+case "${1:-start}" in
+    autostart)
+        should_autostart || exit $EX_NOT_HERE
+        run_session || exit $EX_FAILED
+        exit 0
+        ;;
+    start)
+        run_session || exit $EX_FAILED
+        exit 0
+        ;;
+    -h|--help|help)
+        # Found by searching for the first blank line, not by line number, so
+        # that editing the header cannot silently truncate the help.
+        sed -n '2,/^$/p' "$0" | sed -e '/^# Loom, by /d' -e 's/^# \{0,1\}//'
+        exit 0
+        ;;
+    *)
+        note "usage: loom-session [start|autostart]"
+        exit 1
+        ;;
+esac

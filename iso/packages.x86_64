@@ -1,0 +1,72 @@
+## Loom install medium
+# Everything the installer needs to partition, encrypt, format, pacstrap and
+# sign -- plus enough of a terminal environment to diagnose hardware that is
+# refusing to cooperate.
+
+base
+linux
+linux-firmware
+amd-ucode
+intel-ucode
+mkinitcpio
+mkinitcpio-archiso
+
+# installing
+arch-install-scripts
+btrfs-progs
+cryptsetup
+dosfstools
+e2fsprogs
+gptfdisk
+parted
+efibootmgr
+sbctl
+snapper
+reflector
+rsync
+libarchive
+squashfs-tools
+zstd
+
+# network
+networkmanager
+iwd
+wireless_regdb
+openssh
+curl
+wget
+git
+
+# hardware triage, because "it does not boot" usually starts here
+pciutils
+usbutils
+dmidecode
+smartmontools
+nvme-cli
+hdparm
+lsof
+lvm2
+mdadm
+
+# a terminal worth sitting in while the install runs
+fish
+zellij
+tmux
+neovim
+nano
+terminus-font
+kbd
+gpm
+less
+man-db
+btop
+htop
+tree
+which
+fzf
+ripgrep
+fd
+jq
+bash-completion
+sudo
+polkit

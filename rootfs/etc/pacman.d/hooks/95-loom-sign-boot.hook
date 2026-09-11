@@ -1,0 +1,15 @@
+# sbctl ships its own hook, but only for files already in its database. This one
+# is the backstop: it re-signs everything on the ESP after any transaction that
+# could have touched a boot payload, and it is a no-op when Secure Boot keys
+# have not been created.
+[Trigger]
+Type = Path
+Operation = Install
+Operation = Upgrade
+Target = usr/lib/modules/*/vmlinuz
+Target = usr/lib/systemd/boot/efi/*
+
+[Action]
+Description = Signing boot payloads for Secure Boot...
+When = PostTransaction
+Exec = /usr/local/bin/loom-sign-boot

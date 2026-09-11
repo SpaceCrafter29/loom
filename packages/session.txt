@@ -1,0 +1,9 @@
+# Loom :: session
+# The "window manager": a multiplexer on the Linux console, plus the shell
+# and prompt that wrap it.
+
+zellij
+tmux
+fish
+starship
+neovim

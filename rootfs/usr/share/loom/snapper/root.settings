@@ -1,0 +1,22 @@
+# Applied with `snapper -c root set-config KEY=VALUE` after create-config.
+#
+# We never ship a whole snapper config file: snapper writes a complete one with
+# create-config, and overwriting it with a partial copy is how you end up with a
+# snapshot tool that silently does nothing.
+
+# Timeline snapshots of / are noise. What you actually want a snapshot of is
+# "the moment before pacman touched this machine", and snap-pac gives you that.
+TIMELINE_CREATE=no
+
+NUMBER_CLEANUP=yes
+NUMBER_MIN_AGE=1800
+NUMBER_LIMIT=12
+NUMBER_LIMIT_IMPORTANT=6
+
+# Throw away pre/post pairs where nothing actually changed on disk.
+EMPTY_PRE_POST_CLEANUP=yes
+EMPTY_PRE_POST_MIN_AGE=1800
+
+# wheel can list and compare snapshots without sudo.
+ALLOW_GROUPS=wheel
+SYNC_ACL=yes

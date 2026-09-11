@@ -1,0 +1,22 @@
+# Loom: unified kernel images, no loose initramfs in /boot.
+#
+# A UKI is a single PE binary holding the kernel, the initramfs, the microcode
+# and the kernel command line. That matters here for two reasons: systemd-boot
+# discovers it automatically with no config file to keep in sync, and Secure
+# Boot signing is one signature over one file instead of a shell game with
+# kernel + initrd + cmdline.
+#
+# Installed to /etc/mkinitcpio.d/linux.preset. Pacman may drop a .pacnew here
+# when the `linux` package updates; `loomctl health` will tell you.
+
+ALL_config="/etc/mkinitcpio.conf"
+ALL_kver="/boot/vmlinuz-linux"
+
+PRESETS=('default' 'fallback')
+
+# default_image is intentionally absent: we only want the UKI.
+default_uki="/efi/EFI/Linux/loom-linux.efi"
+default_options="--splash /usr/share/systemd/bootctl/splash-arch.bmp"
+
+fallback_uki="/efi/EFI/Linux/loom-linux-fallback.efi"
+fallback_options="-S autodetect"

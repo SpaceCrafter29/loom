@@ -1,0 +1,48 @@
+# Loom :: core
+# The system cannot boot or update itself without these.
+# Lines starting with # and blank lines are ignored by the installer/bootstrap.
+
+## base
+base
+base-devel
+linux
+linux-firmware
+linux-headers
+amd-ucode
+intel-ucode
+mkinitcpio
+sudo
+polkit
+
+## root filesystem + encryption + boot
+btrfs-progs
+cryptsetup
+efibootmgr
+sbctl
+snapper
+snap-pac
+
+## package management / update plumbing
+pacman-contrib
+reflector
+git
+rsync
+curl
+wget
+
+## console: fonts, keymaps, mouse on the TTY
+kbd
+terminus-font
+gpm
+
+## memory + networking
+zram-generator
+networkmanager
+openssh
+
+## docs and basics
+man-db
+man-pages
+less
+which
+bash-completion

@@ -1,0 +1,69 @@
+# Loom :: tui
+# The daily-driver application set. Everything here runs in a terminal.
+
+## files, search, navigation
+yazi
+ripgrep
+fd
+fzf
+bat
+eza
+zoxide
+tree
+ncdu
+unzip
+p7zip
+
+## git + system
+lazygit
+git-delta
+btop
+htop
+lsof
+strace
+usbutils
+pciutils
+smartmontools
+
+## mail, feeds, chat, web
+aerc
+isync
+msmtp
+newsboat
+w3m
+lynx
+weechat
+
+## media (mpv plays video straight to the framebuffer: mpv --vo=drm)
+mpv
+yt-dlp
+chafa
+mpd
+ncmpcpp
+imagemagick
+ffmpeg
+
+## documents
+poppler
+pandoc-cli
+
+## audio
+pipewire
+pipewire-alsa
+pipewire-pulse
+pipewire-jack
+wireplumber
+pulsemixer
+alsa-utils
+
+## bluetooth (bluetoothctl is the TUI-ish frontend; see aur.txt for bluetuith)
+bluez
+bluez-utils
+
+## printing (CUPS has no GUI here: use lpr/lpstat, or w3m http://localhost:631)
+cups
+cups-pdf
+ghostscript
+gsfonts
+avahi
+nss-mdns

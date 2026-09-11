@@ -1,0 +1,16 @@
+# /home is the opposite case from /: nothing in a package transaction touches
+# it, but you edit it all day. Timeline snapshots are the right tool here.
+TIMELINE_CREATE=yes
+TIMELINE_CLEANUP=yes
+TIMELINE_MIN_AGE=1800
+TIMELINE_LIMIT_HOURLY=6
+TIMELINE_LIMIT_DAILY=7
+TIMELINE_LIMIT_WEEKLY=4
+TIMELINE_LIMIT_MONTHLY=2
+TIMELINE_LIMIT_YEARLY=0
+
+NUMBER_CLEANUP=yes
+NUMBER_LIMIT=20
+
+ALLOW_GROUPS=wheel
+SYNC_ACL=yes

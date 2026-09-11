@@ -1,0 +1,10 @@
+# Loom: wheel members get sudo, with a longer grace period because
+# `loomctl update` legitimately prompts more than once.
+%wheel ALL=(ALL:ALL) ALL
+Defaults timestamp_timeout=30
+Defaults passwd_tries=3
+Defaults lecture=never
+
+# Read-only status queries used by the prompt and by `loomctl health` are not
+# worth a password prompt.
+%wheel ALL=(root) NOPASSWD: /usr/bin/sbctl status, /usr/bin/sbctl verify

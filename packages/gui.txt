@@ -1,0 +1,30 @@
+# Loom :: gui (installed, not started)
+# Loom boots to a bare TTY. These exist so `loomctl gui <app>` has something to
+# put a browser or a PDF on the screen with. Nothing here runs until you ask.
+
+## single-app compositor + a real tiling session if you want one
+cage
+river
+foot
+
+## browser and viewers
+firefox
+imv
+zathura
+zathura-pdf-mupdf
+
+## Wayland support bits
+wl-clipboard
+fuzzel
+mako
+waybar
+grim
+slurp
+xorg-xwayland
+
+## fonts (the TTY uses terminus; these are for the Wayland side)
+ttf-jetbrains-mono-nerd
+ttf-nerd-fonts-symbols
+noto-fonts
+noto-fonts-emoji
+noto-fonts-cjk

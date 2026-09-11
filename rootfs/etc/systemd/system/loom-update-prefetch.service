@@ -1,0 +1,18 @@
+[Unit]
+Description=Pre-download pending Loom package updates
+Documentation=man:pacman(8)
+After=network-online.target
+Wants=network-online.target
+ConditionACPower=true
+
+[Service]
+Type=oneshot
+Nice=19
+IOSchedulingClass=idle
+# -w downloads into the package cache and installs nothing. The point is that
+# by the time you run `loomctl update`, the bytes are already on disk and the
+# upgrade is a local, fast, predictable operation.
+ExecStart=/usr/bin/pacman -Syuw --noconfirm --noprogressbar
+# pacman's lock being held by a real upgrade is not a failure worth mailing
+# about.
+SuccessExitStatus=0 1

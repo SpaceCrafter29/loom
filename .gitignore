@@ -1,0 +1,8 @@
+build/
+out/
+*.iso
+*.sha256
+SHA256SUMS
+pkg/**/pkg/
+pkg/**/src/
+*.pkg.tar.zst

@@ -1,0 +1,43 @@
+#!/bin/bash
+# mkinitcpio build hook for the Loom rescue image.
+
+build() {
+    # Crypto + filesystem. The `encrypt` hook already pulls most of this in;
+    # listing it again costs nothing and makes the image self-describing.
+    add_module 'dm-crypt'
+    add_module 'dm-integrity'
+    add_module 'btrfs'
+
+    add_binary cryptsetup
+    add_binary btrfs
+    add_binary blkid
+    add_binary mount
+    add_binary umount
+    add_binary lsblk
+    add_binary findmnt
+    add_binary setvtrgb
+    add_binary /usr/bin/chroot
+    add_binary bash
+
+    # The rescue shell is bash, not busybox ash: it uses arrays, and a rollback
+    # is not the moment to discover a portability bug.
+    add_file /usr/share/loom/rescue/rescue.sh /usr/lib/loom/rescue.sh 755
+    add_file /usr/share/loom/console/palette /usr/lib/loom/palette
+
+    # tput and clear need a terminfo entry to exist.
+    add_file /usr/share/terminfo/l/linux
+
+    add_runscript
+}
+
+help() {
+    cat <<'HELPEOF'
+Builds a self-contained rescue environment. Instead of mounting the root
+filesystem, this image stops in early userspace and hands you a menu that can
+unlock LUKS, list Btrfs snapshots, roll the root subvolume back to one of them,
+or chroot into the installed system to repair it by hand.
+
+It is reached from the systemd-boot menu as "Loom Rescue", and it is the answer
+to "an update broke my machine and it no longer boots".
+HELPEOF
+}
