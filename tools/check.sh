@@ -353,6 +353,33 @@ check_rootfs_refs() {
     done
     pass "units and pacman hooks point at scripts that exist"
 
+    # Every boot entry must point at an image the presets actually build. A
+    # rename on one side and not the other is a boot menu entry that drops you
+    # into the firmware, discovered at the worst possible time.
+    local -a uki_paths=()
+    mapfile -t uki_paths < <(sed -n 's/^[a-z]*_uki="\(.*\)"$/\1/p' \
+        rootfs/usr/share/loom/boot/linux.preset \
+        rootfs/usr/share/loom/boot/loom-rescue.preset 2>/dev/null)
+    local e efi_path n_entries=0 bad_entries=0
+    for e in rootfs/usr/share/loom/boot/entries/*.conf; do
+        [[ -f $e ]] || continue
+        n_entries=$((n_entries + 1))
+        efi_path=$(sed -n 's/^efi[[:space:]]*//p' "$e" | head -n1)
+        if [[ -z $efi_path ]]; then
+            fail "$(basename "$e") has no 'efi' line"
+            bad_entries=$((bad_entries + 1))
+        elif ! printf '%s\n' "${uki_paths[@]}" | grep -qx "/efi$efi_path"; then
+            fail "$(basename "$e") points at $efi_path, which no preset builds"
+            info "      presets build: ${uki_paths[*]}"
+            bad_entries=$((bad_entries + 1))
+        fi
+    done
+    if (( n_entries == 0 )); then
+        fail "no boot entries in rootfs/usr/share/loom/boot/entries/"
+    elif (( bad_entries == 0 )); then
+        pass "$n_entries boot entries all point at images the presets build"
+    fi
+
     # loomctl's help text and its dispatcher must not drift apart.
     local lc="rootfs/usr/local/bin/loomctl"
     local -a dispatched=() documented=()

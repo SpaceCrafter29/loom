@@ -24,7 +24,7 @@ LOOM_VERSION="unknown"
 LOOM_AUTHOR="SpaceCrafter29"
 LOOM_URL="https://github.com/SpaceCrafter29/loom"
 LOOM_ESP="/efi"
-LOOM_UKI_DIR="/efi/EFI/Linux"
+LOOM_UKI_DIR="/efi/EFI/loom"
 LOOM_SECUREBOOT="1"
 LOOM_REBUILD_UKI="1"
 LOOM_REQUIRE_NEWS="1"
@@ -55,8 +55,13 @@ warn() { printf '  %s!%s %s\n' "$C_YEL$C_B" "$C_RESET" "$*"; }
 bad()  { printf '  %sx%s %s\n' "$C_RED$C_B" "$C_RESET" "$*"; }
 die()  { printf '%s%s: %s%s\n' "$C_RED$C_B" "$PROG" "$*" "$C_RESET" >&2; exit 1; }
 
+# Two counters, because "broken" and "needs your attention" are different
+# things. A pending reboot is not a fault, but a summary that says "nothing to
+# clean up" three lines after telling you to reboot is simply wrong.
 HEALTH_PROBLEMS=0
+HEALTH_WARNINGS=0
 fail_health() { HEALTH_PROBLEMS=$((HEALTH_PROBLEMS + 1)); bad "$*"; }
+warn_health() { HEALTH_WARNINGS=$((HEALTH_WARNINGS + 1)); warn "$*"; }
 
 need_root() {
     [[ $EUID -eq 0 ]] || die "'$1' needs root. Try: sudo $PROG $1"
@@ -442,10 +447,12 @@ cmd_update() {
     check_esp_space
 
     printf '\n'
-    if (( HEALTH_PROBLEMS == 0 )); then
-        ok "update complete, nothing to clean up"
+    if (( HEALTH_PROBLEMS == 0 && HEALTH_WARNINGS == 0 )); then
+        ok "update complete, nothing to do"
+    elif (( HEALTH_PROBLEMS == 0 )); then
+        warn "update complete -- $HEALTH_WARNINGS thing(s) above want your attention"
     else
-        warn "update complete with $HEALTH_PROBLEMS thing(s) to look at above"
+        bad "update complete, but $HEALTH_PROBLEMS problem(s) need fixing"
     fi
 }
 
@@ -454,7 +461,7 @@ cmd_update() {
 check_reboot() {
     local running="${1:-$(uname -r)}"
     if [[ ! -d /usr/lib/modules/$running ]]; then
-        warn "reboot needed: the modules for the running kernel ($running) are gone"
+        warn_health "reboot needed: the modules for the running kernel ($running) are gone"
         return 0
     fi
     ok "running kernel's modules are still installed"
@@ -467,7 +474,7 @@ check_pacnew() {
         ok "no .pacnew files"
         return 0
     fi
-    warn "${#files[@]} config file(s) need merging:"
+    warn_health "${#files[@]} config file(s) need merging:"
     local f
     for f in "${files[@]}"; do note "$f"; done
     note "merge them with: pacdiff   (install pacman-contrib if missing)"
@@ -623,11 +630,16 @@ cmd_health() {
     check_timers
 
     printf '\n'
-    if (( HEALTH_PROBLEMS == 0 )); then
+    if (( HEALTH_PROBLEMS == 0 && HEALTH_WARNINGS == 0 )); then
         printf '%s  healthy%s\n' "$C_GRN$C_B" "$C_RESET"
         return 0
     fi
-    printf '%s  %d problem(s) need attention%s\n' "$C_YEL$C_B" "$HEALTH_PROBLEMS" "$C_RESET"
+    if (( HEALTH_PROBLEMS == 0 )); then
+        printf '%s  healthy, %d thing(s) want your attention%s\n' \
+            "$C_YEL$C_B" "$HEALTH_WARNINGS" "$C_RESET"
+        return 0
+    fi
+    printf '%s  %d problem(s) need attention%s\n' "$C_RED$C_B" "$HEALTH_PROBLEMS" "$C_RESET"
     return 1
 }
 

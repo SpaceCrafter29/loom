@@ -235,7 +235,7 @@ configure_boot() {
     if ! findmnt -rn /efi >/dev/null 2>&1; then
         warn "no ESP at /efi; skipping kernel image configuration"
         note "Loom expects the ESP at /efi and unified kernel images in"
-        note "/efi/EFI/Linux. See docs/install.md if yours is laid out differently."
+        note "/efi/EFI/loom. See docs/install.md if yours is laid out differently."
         return 0
     fi
 
@@ -250,9 +250,26 @@ configure_boot() {
 
     run install -Dm644 /usr/share/loom/boot/linux.preset /etc/mkinitcpio.d/linux.preset
     run install -Dm644 /usr/share/loom/boot/loom-rescue.preset /etc/mkinitcpio.d/loom-rescue.preset
-    ok "mkinitcpio presets installed (unified kernel images to /efi/EFI/Linux)"
+    ok "mkinitcpio presets installed (unified kernel images to /efi/EFI/loom)"
 
-    run mkdir -p /efi/EFI/Linux
+    run mkdir -p /efi/EFI/loom /efi/loader/entries
+
+    # Named boot entries. systemd-boot titles an auto-discovered kernel image
+    # from the PRETTY_NAME embedded in it, and all three Loom images embed the
+    # same /etc/os-release -- so left to itself the menu reads "Arch Linux"
+    # three times and the rescue entry cannot be picked out.
+    if [[ -d /efi/loader/entries ]] || (( DRY_RUN )); then
+        run install -Dm644 -t /efi/loader/entries \
+            /usr/share/loom/boot/entries/10-loom.conf \
+            /usr/share/loom/boot/entries/20-loom-fallback.conf \
+            /usr/share/loom/boot/entries/90-loom-rescue.conf
+        ok "boot entries: Loom / Loom (fallback) / Loom Rescue"
+        # Only claim the default if this looks like a Loom-managed ESP.
+        if [[ -f /efi/loader/loader.conf ]] && ! grep -q '^default' /efi/loader/loader.conf; then
+            printf 'default      10-loom.conf\n' >>/efi/loader/loader.conf
+            ok "loader.conf: default entry set"
+        fi
+    fi
 
     step "Building kernel images"
     if (( DRY_RUN )); then

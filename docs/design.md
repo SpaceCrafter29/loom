@@ -54,9 +54,26 @@ login loop is not an acceptable failure mode for a session manager.
 ## Unified kernel images and systemd-boot, not GRUB
 
 A unified kernel image is one PE binary containing the kernel, the initramfs,
-the CPU microcode and the embedded kernel command line. systemd-boot discovers
-any `*.efi` in `/efi/EFI/Linux` automatically, so there are no bootloader entry
-files to keep in sync with reality.
+the CPU microcode and the embedded kernel command line.
+
+systemd-boot can discover such images by itself, and Loom deliberately does not
+let it. Auto-discovery titles each entry from the `PRETTY_NAME` embedded in the
+image, and all three Loom images embed the same `/etc/os-release` — so the menu
+would read *Arch Linux* three times, with the rescue entry indistinguishable
+from the others at exactly the moment you need to find it. The images therefore
+live in `/efi/EFI/loom`, which systemd-boot does not scan, and three entry files
+in `/efi/loader/entries` name them:
+
+```
+10-loom.conf           Loom
+20-loom-fallback.conf  Loom (fallback)
+90-loom-rescue.conf    Loom Rescue
+```
+
+Nothing in them changes between kernel versions — they point at fixed filenames
+that `mkinitcpio` rewrites in place — so this costs three static files and buys
+a boot menu you can read. `tools/check.sh` verifies that each entry's `efi` path
+matches a path the presets actually build.
 
 The reason this is not a style preference: **GRUB cannot unlock a LUKS2 volume
 whose KDF is argon2id.** The alternatives are to use GRUB with a weaker PBKDF2

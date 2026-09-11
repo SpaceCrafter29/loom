@@ -10,7 +10,7 @@ set -uo pipefail
 
 LOOM_CONF="${LOOM_CONF:-/etc/loom/loom.conf}"
 LOOM_ESP="/efi"
-LOOM_UKI_DIR="/efi/EFI/Linux"
+LOOM_UKI_DIR="/efi/EFI/loom"
 LOOM_SECUREBOOT="1"
 # shellcheck source=/dev/null
 [[ -r $LOOM_CONF ]] && . "$LOOM_CONF"

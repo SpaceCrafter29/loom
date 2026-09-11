@@ -73,9 +73,9 @@ writes to.
 ## Boot layout
 
 ```
-/efi/EFI/Linux/loom-linux.efi            normal boot
-/efi/EFI/Linux/loom-linux-fallback.efi   same, every module, no autodetect
-/efi/EFI/Linux/loom-rescue.efi           offline rollback and repair
+/efi/EFI/loom/loom-linux.efi            normal boot
+/efi/EFI/loom/loom-linux-fallback.efi   same, every module, no autodetect
+/efi/EFI/loom/loom-rescue.efi           offline rollback and repair
 /efi/EFI/systemd/systemd-bootx64.efi     the bootloader
 /efi/loader/loader.conf                  3s menu, editor off
 ```

@@ -5,4 +5,4 @@ ALL_kver="/boot/vmlinuz-linux"
 PRESETS=('rescue')
 
 rescue_config="/etc/mkinitcpio-rescue.conf"
-rescue_uki="/efi/EFI/Linux/loom-rescue.efi"
+rescue_uki="/efi/EFI/loom/loom-rescue.efi"

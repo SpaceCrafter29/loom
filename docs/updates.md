@@ -162,5 +162,5 @@ to next time. Fix it by adding the fstab entry and re-running `bootstrap.sh`.
 
 **"only N MB free on the ESP"** matters because a unified kernel image is 40–80 MB
 and the rescue image is around 100 MB. An ESP that is too full to write the next
-kernel is how an upgrade ends with no bootable system. `ls -la /efi/EFI/Linux`
+kernel is how an upgrade ends with no bootable system. `ls -la /efi/EFI/loom`
 and remove images for kernels you no longer have.

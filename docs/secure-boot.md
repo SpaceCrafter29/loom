@@ -49,7 +49,7 @@ sudo sbctl verify
 ```
 
 `sbctl verify` should list every file as signed. If a file is missing, look at
-`ls /efi/EFI/Linux`.
+`ls /efi/EFI/loom`.
 
 **4. Turn Secure Boot on** in the firmware, and reboot.
 

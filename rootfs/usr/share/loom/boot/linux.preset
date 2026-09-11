@@ -15,8 +15,8 @@ ALL_kver="/boot/vmlinuz-linux"
 PRESETS=('default' 'fallback')
 
 # default_image is intentionally absent: we only want the UKI.
-default_uki="/efi/EFI/Linux/loom-linux.efi"
+default_uki="/efi/EFI/loom/loom-linux.efi"
 default_options="--splash /usr/share/systemd/bootctl/splash-arch.bmp"
 
-fallback_uki="/efi/EFI/Linux/loom-linux-fallback.efi"
+fallback_uki="/efi/EFI/loom/loom-linux-fallback.efi"
 fallback_options="-S autodetect"

@@ -1,0 +1,727 @@
+<title>Loom Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+<style>
+/* ------------------------------------------------------------------
+   Single-theme by decision, not omission: the Loom console has one
+   palette, defined in rootfs/usr/share/loom/console/palette, and every
+   colour on this page is one of those sixteen values. A light mode would
+   be a lie about what the machine looks like.
+   ------------------------------------------------------------------ */
+:root {
+  /* The palette, verbatim. Index = kernel console colour index. */
+  --k0:  #1c1b1a;  --k8:  #4a4744;
+  --k1:  #c4524a;  --k9:  #e0726a;
+  --k2:  #7c9b58;  --k10: #98b877;
+  --k3:  #c79a4b;  --k11: #e3b96a;
+  --k4:  #5e81a6;  --k12: #7ba0c4;
+  --k5:  #9a6b9e;  --k13: #b98bbd;
+  --k6:  #5f9a96;  --k14: #7fb8b4;
+  --k7:  #c8c2b8;  --k15: #efe9de;
+
+  /* Page chrome, derived from the same values so nothing is invented. */
+  --ground: #141312;
+  --panel:  var(--k0);
+  --edge:   #2a2826;
+  --edge-lit: #3a3734;
+  --ink:    var(--k7);
+  --ink-dim:#8b857c;
+  --ink-hi: var(--k15);
+
+  --mono: "IBM Plex Mono", ui-monospace, "DejaVu Sans Mono", Consolas, monospace;
+  --sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+
+  --cell: 15px;         /* console type size */
+  --line: 1.45;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+.page {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 40px 24px 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+/* --- masthead ---------------------------------------------------- */
+
+.masthead { display: flex; flex-direction: column; gap: 10px; }
+
+.wordmark {
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: clamp(26px, 5vw, 38px);
+  letter-spacing: 0.42em;
+  color: var(--k14);
+  margin: 0;
+  text-wrap: balance;
+}
+
+.standfirst {
+  margin: 0;
+  max-width: 62ch;
+  color: var(--ink-dim);
+  font-size: 15.5px;
+}
+.standfirst strong { color: var(--ink); font-weight: 500; }
+
+/* --- screen picker ------------------------------------------------ */
+
+.picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.picker-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  margin-right: 6px;
+}
+
+.pick {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--ink-dim);
+  background: transparent;
+  border: 1px solid var(--edge);
+  border-radius: 2px;
+  padding: 6px 11px;
+  cursor: pointer;
+  transition: color .12s, border-color .12s, background .12s;
+}
+.pick:hover { color: var(--ink); border-color: var(--edge-lit); }
+.pick:focus-visible { outline: 2px solid var(--k14); outline-offset: 2px; }
+.pick[aria-selected="true"] {
+  color: var(--k0);
+  background: var(--k14);
+  border-color: var(--k14);
+}
+.pick .num { color: var(--k8); margin-right: 7px; }
+.pick[aria-selected="true"] .num { color: var(--k0); opacity: .55; }
+
+/* --- the console -------------------------------------------------- */
+
+.console {
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 3px;
+  overflow: hidden;
+  /* A panel, not a card: one visible edge and a faint inner lift, because
+     this is the one object on the page that should read as a device. */
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.02), 0 18px 44px -28px #000;
+}
+
+.bezel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--edge);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--ink-dim);
+  background: #191817;
+}
+.bezel .vt { color: var(--k8); }
+
+.crt { overflow-x: auto; }
+
+pre.tty {
+  font-family: var(--mono);
+  font-size: var(--cell);
+  line-height: var(--line);
+  margin: 0;
+  padding: 14px 16px 18px;
+  color: var(--k7);
+  white-space: pre;
+  tab-size: 4;
+  min-width: 82ch;
+}
+
+/* Palette classes, used exactly as the system uses them. */
+.k0{color:var(--k0)} .k1{color:var(--k1)} .k2{color:var(--k2)} .k3{color:var(--k3)}
+.k4{color:var(--k4)} .k5{color:var(--k5)} .k6{color:var(--k6)} .k7{color:var(--k7)}
+.k8{color:var(--k8)} .k9{color:var(--k9)} .k10{color:var(--k10)} .k11{color:var(--k11)}
+.k12{color:var(--k12)} .k13{color:var(--k13)} .k14{color:var(--k14)} .k15{color:var(--k15)}
+.b { font-weight: 600; }
+
+/* Reverse video, which is how the console shows a selection. */
+.rev { background: var(--k7); color: var(--k0); }
+.rev-cyan { background: var(--k14); color: var(--k0); }
+
+.cur {
+  background: var(--k7);
+  color: var(--k0);
+  animation: blink 1.1s steps(1) infinite;
+}
+@keyframes blink { 50% { background: transparent; color: var(--k7); } }
+@media (prefers-reduced-motion: reduce) {
+  .cur { animation: none; }
+}
+
+/* --- zellij tab row inside the session screen --------------------- */
+
+.ztabs { display: flex; gap: 0; }
+.ztab {
+  font-family: var(--mono);
+  font-size: 13px;
+  border: 0;
+  background: transparent;
+  color: var(--k8);
+  padding: 3px 14px;
+  cursor: pointer;
+}
+.ztab:hover { color: var(--k7); }
+.ztab:focus-visible { outline: 2px solid var(--k14); outline-offset: -2px; }
+.ztab[aria-selected="true"] { background: var(--k7); color: var(--k0); font-weight: 500; }
+
+.zbar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 3px 8px 3px 4px;
+  background: #171615;
+  border-bottom: 1px solid var(--edge);
+}
+.zbar .zname {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--k8);
+  margin-left: auto;
+  padding-right: 6px;
+  letter-spacing: .08em;
+}
+
+.zstatus {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--k8);
+  padding: 6px 16px 10px;
+  border-top: 1px solid var(--edge);
+  white-space: pre-wrap;
+}
+.zstatus .key { color: var(--k11); }
+.zstatus .mode { color: var(--k7); }
+
+/* --- annotations -------------------------------------------------- */
+
+.caption {
+  font-size: 13.5px;
+  color: var(--ink-dim);
+  margin: 0;
+  max-width: 72ch;
+}
+.caption b { color: var(--ink); font-weight: 500; }
+
+/* --- palette strip ------------------------------------------------ */
+
+.swatches {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  gap: 1px;
+  background: var(--edge);
+  border: 1px solid var(--edge);
+}
+.sw {
+  background: var(--panel);
+  padding: 9px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.sw .chip { height: 16px; border-radius: 1px; }
+.sw .meta {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-dim);
+  display: flex;
+  justify-content: space-between;
+  font-variant-numeric: tabular-nums;
+}
+.sw .meta .idx { color: var(--k8); }
+
+/* --- notes -------------------------------------------------------- */
+
+.notes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 22px 34px;
+  padding-top: 22px;
+  border-top: 1px solid var(--edge);
+}
+.note h3 {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+  color: var(--k14);
+  margin: 0 0 7px;
+  font-weight: 500;
+}
+.note p { margin: 0; font-size: 13.5px; color: var(--ink-dim); }
+.note p + p { margin-top: 8px; }
+.note code {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--ink);
+}
+.note .flag { color: var(--k11); }
+
+.colophon {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--k8);
+  letter-spacing: .06em;
+}
+.colophon a { color: var(--k8); text-decoration: underline; text-underline-offset: 3px; }
+.colophon a:hover { color: var(--k14); }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <h1 class="wordmark">LOOM</h1>
+    <p class="standfirst">
+      What the machine actually looks like. Every colour below is one of the sixteen
+      values in <strong>rootfs/usr/share/loom/console/palette</strong> — the kernel console
+      has no more than that — and the text is the real output of the scripts in the repo,
+      not a mockup of it.
+    </p>
+  </header>
+
+  <nav class="picker" role="tablist" aria-label="Screens">
+    <span class="picker-label">screen</span>
+    <button class="pick" role="tab" aria-selected="false" data-screen="boot"><span class="num">1</span>boot menu</button>
+    <button class="pick" role="tab" aria-selected="false" data-screen="unlock"><span class="num">2</span>unlock</button>
+    <button class="pick" role="tab" aria-selected="true"  data-screen="session"><span class="num">3</span>session</button>
+    <button class="pick" role="tab" aria-selected="false" data-screen="health"><span class="num">4</span>health</button>
+    <button class="pick" role="tab" aria-selected="false" data-screen="update"><span class="num">5</span>update</button>
+    <button class="pick" role="tab" aria-selected="false" data-screen="rescue"><span class="num">6</span>rescue</button>
+  </nav>
+
+  <div class="console">
+    <div class="bezel">
+      <span id="bezel-what">tty1 — zellij session “loom”</span>
+      <span class="vt" id="bezel-vt">80×30 · ter-132b</span>
+    </div>
+
+    <!-- 1. BOOT ---------------------------------------------------- -->
+    <div class="crt" data-panel="boot" hidden>
+<pre class="tty">
+<span class="k8">systemd-boot 257.3</span>
+
+   <span class="rev">  Loom                                                    </span>
+     Loom (fallback)
+     Loom Rescue
+     Reboot Into Firmware Interface
+
+<span class="k8">   ↑/↓ select · enter boot · e edit is disabled · 3s</span>
+
+
+
+<span class="k8">─────────────────────────────────────────────────────────────
+  Three names, not three copies of "Arch Linux". systemd-boot titles an
+  auto-discovered image from the PRETTY_NAME baked into it, and all three
+  of these embed the same /etc/os-release -- so the images sit outside the
+  directory it scans, and three entry files name them instead.
+
+  Command-line editing is off. With full-disk encryption, letting anyone
+  at the keyboard append init=/bin/sh would walk straight past the login.
+  The rescue entry is the supported way in.</span>
+</pre>
+    </div>
+
+    <!-- 2. UNLOCK -------------------------------------------------- -->
+    <div class="crt" data-panel="unlock" hidden>
+<pre class="tty">
+<span class="k8">Loading Linux linux ...</span>
+<span class="k8">Loading initial ramdisk ...</span>
+
+<span class="k7">Please enter passphrase for disk loom (cryptroot):</span> <span class="k8">••••••••••••</span><span class="cur"> </span>
+
+<span class="k8">  [    2.184110] systemd[1]: Starting systemd-cryptsetup@cryptroot.service
+  [    3.902441] BTRFS info (device dm-0): using crc32c checksum algorithm
+  [    3.902680] BTRFS info (device dm-0): using zstd compression, level 1
+  [    4.118902] systemd[1]: Reached target Local File Systems.</span>
+
+
+
+
+<span class="k8">─────────────────────────────────────────────────────────────</span>
+<span class="k8">  argon2id, 512-bit key. The reason Loom does not use GRUB: GRUB
+  cannot unlock a LUKS2 volume with this key derivation function,
+  and weakening it to suit a bootloader is the wrong trade on a
+  machine that can be stolen.</span>
+</pre>
+    </div>
+
+    <!-- 3. SESSION ------------------------------------------------- -->
+    <div data-panel="session">
+      <div class="zbar" role="tablist" aria-label="zellij tabs">
+        <button class="ztab" role="tab" aria-selected="true"  data-ztab="shell">shell</button>
+        <button class="ztab" role="tab" aria-selected="false" data-ztab="files">files</button>
+        <button class="ztab" role="tab" aria-selected="false" data-ztab="git">git</button>
+        <button class="ztab" role="tab" aria-selected="false" data-ztab="sys">sys</button>
+        <span class="zname">loom</span>
+      </div>
+
+      <div class="crt" data-ztabpanel="shell">
+<pre class="tty">
+<span class="k12 b">stefan</span><span class="k8">@loom</span> <span class="k6 b">~</span>
+<span class="k2 b">&gt;</span> loomctl version
+<span class="k14 b">Loom</span> 2026.09.11
+  kernel     6.17.1-arch1-1
+  root       /dev/mapper/cryptroot (btrfs, subvol @)
+  secureboot enabled
+  snapshots  9 on /
+
+<span class="k8">by SpaceCrafter29 -- https://github.com/SpaceCrafter29/loom</span>
+
+<span class="k12 b">stefan</span><span class="k8">@loom</span> <span class="k6 b">~/loom</span> <span class="k5 b">main</span> <span class="k3">*</span>
+<span class="k2 b">&gt;</span> mpv --vo=drm talk.mkv
+<span class="k8">  (video plays full screen on the bare console — no compositor)</span>
+
+<span class="k12 b">stefan</span><span class="k8">@loom</span> <span class="k6 b">~/loom</span> <span class="k5 b">main</span> <span class="k3">*</span>
+<span class="k2 b">&gt;</span> <span class="cur"> </span>
+</pre>
+      </div>
+
+      <div class="crt" data-ztabpanel="files" hidden>
+<pre class="tty">
+<span class="k8"> ~/loom</span>
+<span class="k6 b"> docs/</span>                    <span class="k6 b"> rootfs/etc/</span>              <span class="k8">─────────────</span>
+<span class="k8">──────────────────────</span>   <span class="k8">─────────────────────</span>   <span class="k8"> loom.conf</span>
+ <span class="rev"> rootfs/              </span>    <span class="k6 b">fish/</span>                    <span class="k8"> 1.4 KB</span>
+ iso/                     <span class="k6 b">initcpio/</span>                <span class="k8"> shell script</span>
+ packages/                <span class="rev"> loom/                </span>
+ pkg/                     <span class="k6 b">pacman.d/</span>               <span class="k8"> LOOM_NAME="Loom"</span>
+ scripts/                 <span class="k6 b">profile.d/</span>              <span class="k8"> LOOM_VERSION=…</span>
+ tools/                   <span class="k6 b">systemd/</span>                <span class="k8"> LOOM_AUTHOR=…</span>
+ <span class="k2">README.md</span>                <span class="k6 b">tlp.d/</span>
+ <span class="k2">LICENSE</span>                  <span class="k2">vconsole.conf</span>           <span class="k8"> ── session ──</span>
+                          <span class="k2">mkinitcpio-rescue…</span>      <span class="k8"> AUTOSTART="1"</span>
+                                                   <span class="k8"> TTY="tty1"</span>
+<span class="k8"> 8/8                                             yazi   1/1</span>
+</pre>
+      </div>
+
+      <div class="crt" data-ztabpanel="git" hidden>
+<pre class="tty">
+
+
+          <span class="k8">┌──────────────────────────────────────────────┐</span>
+          <span class="k8">│</span>                                              <span class="k8">│</span>
+          <span class="k8">│</span>   <span class="k7">Waiting to run:</span> <span class="k11">lazygit</span>                    <span class="k8">│</span>
+          <span class="k8">│</span>                                              <span class="k8">│</span>
+          <span class="k8">│</span>   <span class="k8">&lt;ENTER&gt;</span> run    <span class="k8">&lt;Ctrl-c&gt;</span> close            <span class="k8">│</span>
+          <span class="k8">│</span>                                              <span class="k8">│</span>
+          <span class="k8">└──────────────────────────────────────────────┘</span>
+
+
+<span class="k8">  This pane is start_suspended in the layout on purpose.
+  lazygit outside a repository is just an error message, so
+  it waits for you rather than greeting you with one.</span>
+
+
+</pre>
+      </div>
+
+      <div class="crt" data-ztabpanel="sys" hidden>
+<pre class="tty">
+<span class="k8">┌─ cpu ───────────────────────────┐</span> <span class="k12 b">stefan</span><span class="k8">@loom</span> <span class="k6 b">~</span>
+<span class="k8">│</span> <span class="k2">1</span> <span class="k2">▏▎▍▌▆█</span><span class="k8">▁▁▁</span>  <span class="k7">34%</span>  <span class="k8">│</span> <span class="k2">5</span> <span class="k2">▏▎</span><span class="k8">▁▁▁▁▁▁</span>   <span class="k7">9%</span> <span class="k8">│</span> <span class="k2 b">&gt;</span> journalctl -p3 -b
+<span class="k8">│</span> <span class="k2">2</span> <span class="k2">▏▎▍</span><span class="k8">▁▁▁▁▁</span>  <span class="k7">18%</span>  <span class="k8">│</span> <span class="k2">6</span> <span class="k2">▏</span><span class="k8">▁▁▁▁▁▁▁</span>   <span class="k7">4%</span> <span class="k8">│</span> <span class="k8">-- No entries --</span>
+<span class="k8">│</span> <span class="k2">3</span> <span class="k3">▏▎▍▌▆</span><span class="k8">▁▁▁</span>  <span class="k7">41%</span>  <span class="k8">│</span> <span class="k2">7</span> <span class="k2">▏▎</span><span class="k8">▁▁▁▁▁▁</span>  <span class="k7">11%</span> <span class="k8">│</span>
+<span class="k8">│</span> <span class="k2">4</span> <span class="k2">▏▎</span><span class="k8">▁▁▁▁▁▁</span>   <span class="k7">7%</span>  <span class="k8">│</span> <span class="k2">8</span> <span class="k2">▏</span><span class="k8">▁▁▁▁▁▁▁</span>   <span class="k7">3%</span> <span class="k8">│</span> <span class="k12 b">stefan</span><span class="k8">@loom</span> <span class="k6 b">~</span>
+<span class="k8">└─────────────────────────────────┘</span> <span class="k2 b">&gt;</span> <span class="cur"> </span>
+<span class="k8">┌─ mem ───────────────────────────┐</span>
+<span class="k8">│</span> used   <span class="k7">3.41G</span> <span class="k2">▏▎▍▌▆█</span><span class="k8">▁▁▁▁▁▁▁▁▁▁</span> <span class="k8">│</span>
+<span class="k8">│</span> zram   <span class="k7">0.00G</span> <span class="k8">▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁</span> <span class="k8">│</span>
+<span class="k8">│</span> btrfs  <span class="k7">  18%</span> <span class="k2">▏▎▍</span><span class="k8">▁▁▁▁▁▁▁▁▁▁▁▁▁</span> <span class="k8">│</span>
+<span class="k8">└─────────────────────────────────┘</span>
+<span class="k8">  btop runs with truecolor = False and force_tty = True:
+  asking it for 24-bit gradients on a 16-colour console
+  produces a grey smear.</span>
+</pre>
+      </div>
+
+      <div class="zstatus"><span class="mode">Ctrl +</span> <span class="key">&lt;g&gt;</span> LOCK  <span class="key">&lt;p&gt;</span> PANE  <span class="key">&lt;t&gt;</span> TAB  <span class="key">&lt;n&gt;</span> RESIZE  <span class="key">&lt;h&gt;</span> MOVE  <span class="key">&lt;s&gt;</span> SEARCH  <span class="key">&lt;o&gt;</span> SESSION  <span class="key">&lt;q&gt;</span> QUIT
+<span class="key">Alt +</span> <span class="key">f</span> files  <span class="key">g</span> git  <span class="key">m</span> system  <span class="key">w</span> browser  <span class="key">h</span> health</div>
+    </div>
+
+    <!-- 4. HEALTH -------------------------------------------------- -->
+    <div class="crt" data-panel="health" hidden>
+<pre class="tty">
+<span class="k12 b">stefan</span><span class="k8">@loom</span> <span class="k6 b">~</span>
+<span class="k2 b">&gt;</span> loomctl health
+
+<span class="k14 b">Loom</span> 2026.09.11 -- health
+
+<span class="k4 b">==&gt;</span> <span class="b">Boot</span>
+  <span class="k2 b">+</span> 3 kernel image(s) in /efi/EFI/loom
+  <span class="k8">.</span> loom-linux.efi (54M)
+  <span class="k8">.</span> loom-linux-fallback.efi (71M)
+  <span class="k8">.</span> loom-rescue.efi (98M)
+  <span class="k2 b">+</span> ESP has 803MB free
+  <span class="k2 b">+</span> Secure Boot is enabled
+  <span class="k2 b">+</span> all tracked boot files are signed
+
+<span class="k4 b">==&gt;</span> <span class="b">Rollback</span>
+  <span class="k2 b">+</span> 9 snapshot(s) of /
+  <span class="k2 b">+</span> snap-pac is installed (pacman snapshots automatically)
+  <span class="k8">.</span> btrfs Free (estimated):  412.08GiB (min: 206.04GiB)
+
+<span class="k4 b">==&gt;</span> <span class="b">System</span>
+  <span class="k2 b">+</span> running kernel's modules are still installed
+  <span class="k2 b">+</span> no failed systemd units
+  <span class="k2 b">+</span> no .pacnew files
+  <span class="k8">.</span> 2 orphaned package(s); remove with: pacman -Rns $(pacman -Qtdq)
+  <span class="k2 b">+</span> loom-update-prefetch.timer enabled
+  <span class="k2 b">+</span> snapper-cleanup.timer enabled
+  <span class="k2 b">+</span> fstrim.timer enabled
+
+<span class="k2 b">  healthy</span>
+</pre>
+    </div>
+
+    <!-- 5. UPDATE -------------------------------------------------- -->
+    <div class="crt" data-panel="update" hidden>
+<pre class="tty">
+<span class="k12 b">stefan</span><span class="k8">@loom</span> <span class="k6 b">~</span>
+<span class="k2 b">&gt;</span> sudo loomctl update
+
+<span class="k4 b">==&gt;</span> <span class="b">Refreshing mirrorlist</span>
+  <span class="k2 b">+</span> mirrorlist updated
+<span class="k4 b">==&gt;</span> <span class="b">Upgrading</span>
+<span class="k8">:: Synchronizing package databases...
+ core downloading...
+ extra downloading...
+:: Starting full system upgrade...
+resolving dependencies...
+
+Packages (6)  linux-6.17.2.arch1-1  linux-firmware-20260904-1
+              mesa-25.2.3-1  systemd-258.1-2  zellij-0.43.1-1
+
+Total Download Size:   0.00 MiB   <span class="k7">(already in the cache — prefetched)</span>
+Net Upgrade Size:      3.21 MiB</span>
+
+<span class="k8">==&gt; Creating pre snapshot #47 (snap-pac)
+==&gt; Creating post snapshot #48 (snap-pac)</span>
+  <span class="k8">.</span> kernel 6.17.1.arch1-1 -&gt; 6.17.2.arch1-1
+<span class="k4 b">==&gt;</span> <span class="b">Rebuilding unified kernel images</span>
+  <span class="k2 b">+</span> kernel images rebuilt
+<span class="k4 b">==&gt;</span> <span class="b">Signing boot payloads</span>
+  <span class="k2 b">+</span> all tracked files signed
+<span class="k4 b">==&gt;</span> <span class="b">Post-update check</span>
+  <span class="k3 b">!</span> reboot needed: the modules for the running kernel (6.17.1-arch1-1) are gone
+  <span class="k2 b">+</span> no .pacnew files
+  <span class="k2 b">+</span> no failed systemd units
+  <span class="k2 b">+</span> ESP has 741MB free
+
+  <span class="k3 b">!</span> update complete -- 1 thing(s) above want your attention
+</pre>
+    </div>
+
+    <!-- 6. RESCUE -------------------------------------------------- -->
+    <div class="crt" data-panel="rescue" hidden>
+<pre class="tty">
+  <span class="k14 b">L O O M</span>  <span class="k8">rescue</span>
+  <span class="k8">early userspace -- the installed system is not mounted</span>
+<span class="k8">----------------------------------------------------------------------</span>
+<span class="k4 b">==&gt;</span> looking for disks
+<span class="k2 b"> ok</span>  unlocked as /dev/mapper/loomrescue
+<span class="k2 b"> ok</span>  Btrfs top level mounted at /loom
+
+<span class="k8">----------------------------------------------------------------------</span>
+ <span class="k2">root filesystem mounted</span> <span class="k8">(/dev/mapper/loomrescue at /loom)</span>
+<span class="k8">----------------------------------------------------------------------</span>
+  <span class="b">1</span>  unlock and mount the root filesystem
+  <span class="b">2</span>  list snapshots
+  <span class="b">3</span>  roll back to a snapshot
+  <span class="b">4</span>  chroot into the installed system
+  <span class="b">5</span>  shell here (initramfs, nothing mounted)
+  <span class="b">6</span>  reboot
+  <span class="b">7</span>  power off
+
+<span class="k7">loom-rescue:</span> <span class="k7">3</span>
+
+<span class="b">#      date                 type       description</span>
+47     2026-11-02 09:14:07  pre        pacman -Syu
+46     2026-11-01 21:03:55  single     before kernel test
+ 7     2026-09-11 20:40:12  single     loom bootstrap
+
+<span class="k7">snapshot number to restore (blank to abort):</span> <span class="cur"> </span>
+</pre>
+    </div>
+  </div>
+
+  <p class="caption" id="caption">
+    <b>tty1 runs the session; tty2–tty6 are always plain login shells.</b>
+    A broken config in <code>~/.config/zellij</code> cannot lock you out, and two fast session
+    failures disable autostart for the rest of the boot and hand you a shell with an explanation.
+  </p>
+
+  <section>
+    <h2 class="note" style="font-family:var(--mono);font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--k14);margin:0 0 10px;font-weight:500;">The sixteen colours</h2>
+    <div class="swatches" id="swatches"></div>
+  </section>
+
+  <div class="notes">
+    <div class="note">
+      <h3>1 · The font is approximated</h3>
+      <p>The real console loads <code>ter-132b</code> — Terminus, a bitmap face at 16×32, set in
+      <code>/etc/vconsole.conf</code>. Bitmap fonts cannot be delivered to a browser, so this page
+      uses IBM Plex Mono. Expect the real thing to look harder-edged and slightly narrower.</p>
+    </div>
+    <div class="note">
+      <h3>2 · The colours are exact</h3>
+      <p>Not approximated. These are the values <code>setvtrgb</code> writes at boot, and every
+      theme in the system — zellij, neovim, btop, starship — refers to them by <em>index</em>,
+      never by hex. Editing that one file restyles the whole machine.</p>
+    </div>
+    <div class="note">
+      <h3>3 · <span class="flag">Found drawing this, now fixed</span></h3>
+      <p>The update screen used to end “nothing to clean up” three lines after warning that a
+      reboot was needed: only hard failures counted, so warnings never reached the summary.
+      <code>loomctl</code> now keeps two counters — broken and needs-attention — because those are
+      different things.</p>
+    </div>
+    <div class="note">
+      <h3>4 · <span class="flag">Also found drawing this</span></h3>
+      <p>The boot menu would have read <em>Arch Linux</em> three times. systemd-boot titles an
+      auto-discovered image from the <code>PRETTY_NAME</code> inside it, and all three Loom images
+      embed the same <code>/etc/os-release</code> — so the rescue entry would have been
+      unidentifiable at exactly the moment you needed it.</p>
+      <p>The images now live in <code>/EFI/loom</code>, which systemd-boot does not scan, and three
+      entry files name them. <code>tools/check.sh</code> checks that each entry points at an image
+      the presets actually build.</p>
+    </div>
+  </div>
+
+  <p class="colophon">
+    Loom · by SpaceCrafter29 · <a href="https://github.com/SpaceCrafter29/loom">github.com/SpaceCrafter29/loom</a><br>
+    Drawn from the repo · a picture of the system, not the system · not yet booted
+  </p>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var PALETTE = [
+    ["black",          "#1c1b1a"], ["red",            "#c4524a"],
+    ["green",          "#7c9b58"], ["yellow",         "#c79a4b"],
+    ["blue",           "#5e81a6"], ["magenta",        "#9a6b9e"],
+    ["cyan",           "#5f9a96"], ["white",          "#c8c2b8"],
+    ["br black",       "#4a4744"], ["br red",         "#e0726a"],
+    ["br green",       "#98b877"], ["br yellow",      "#e3b96a"],
+    ["br blue",        "#7ba0c4"], ["br magenta",     "#b98bbd"],
+    ["br cyan",        "#7fb8b4"], ["br white",       "#efe9de"]
+  ];
+
+  var strip = document.getElementById("swatches");
+  PALETTE.forEach(function (entry, i) {
+    var cell = document.createElement("div");
+    cell.className = "sw";
+    var chip = document.createElement("div");
+    chip.className = "chip";
+    chip.style.background = entry[1];
+    var meta = document.createElement("div");
+    meta.className = "meta";
+    meta.innerHTML = '<span class="idx">' + i + '</span><span>' + entry[1] + '</span>';
+    var name = document.createElement("div");
+    name.className = "meta";
+    name.innerHTML = '<span>' + entry[0] + '</span>';
+    cell.appendChild(chip);
+    cell.appendChild(meta);
+    cell.appendChild(name);
+    strip.appendChild(cell);
+  });
+
+  var BEZEL = {
+    boot:    ["systemd-boot — the firmware's menu", "1024×768 · EFI console"],
+    unlock:  ["early boot — systemd-cryptsetup", "80×30 · kernel console"],
+    session: ["tty1 — zellij session “loom”", "80×30 · ter-132b"],
+    health:  ["tty1 — loomctl health", "80×30 · ter-132b"],
+    update:  ["tty1 — loomctl update", "80×30 · ter-132b"],
+    rescue:  ["Loom Rescue — initramfs, root not mounted", "80×30 · ter-132b"]
+  };
+
+  var CAPTION = {
+    boot: '<b>Three unified kernel images and nothing else.</b> Each is one signed binary holding the kernel, the initramfs, the microcode and the command line — which is why Secure Boot here is a single signature over a single file, instead of a shell game with a signed kernel, an unsigned initramfs and a command line anyone at the keyboard can edit.',
+    unlock: '<b>This prompt is the whole security model at rest.</b> Full-disk encryption protects the machine when it is off; Secure Boot protects the boot path when it is on. Together they stop someone swapping in a kernel that captures this passphrase.',
+    session: '<b>tty1 runs the session; tty2–tty6 are always plain login shells.</b> A broken config in <code>~/.config/zellij</code> cannot lock you out, and two fast session failures disable autostart for the rest of the boot and hand you a shell with an explanation.',
+    health: '<b>The thing you run when something feels off.</b> It checks the failures that are quiet until they are catastrophic — an ESP too full for the next kernel, a <code>/.snapshots</code> that is not actually a separate mount, a running kernel whose modules have been removed.',
+    update: '<b>The packages were already on disk.</b> A timer runs <code>pacman -Syuw</code> daily at idle on AC power, so the upgrade itself is local: no waiting on a mirror, and no half-downloaded transaction when the network drops.',
+    rescue: '<b>This image carries its own tools.</b> cryptsetup, btrfs and a bash rescue shell live inside the initramfs, and it never reads the root filesystem to start — which is the only reason it still works when the root filesystem is the problem.'
+  };
+
+  var picks = Array.prototype.slice.call(document.querySelectorAll(".pick"));
+  var panels = Array.prototype.slice.call(document.querySelectorAll("[data-panel]"));
+  var caption = document.getElementById("caption");
+  var bezelWhat = document.getElementById("bezel-what");
+  var bezelVt = document.getElementById("bezel-vt");
+
+  function show(name) {
+    picks.forEach(function (p) {
+      p.setAttribute("aria-selected", String(p.dataset.screen === name));
+    });
+    panels.forEach(function (p) {
+      p.hidden = (p.dataset.panel !== name);
+    });
+    if (BEZEL[name]) {
+      bezelWhat.textContent = BEZEL[name][0];
+      bezelVt.textContent = BEZEL[name][1];
+    }
+    if (CAPTION[name]) caption.innerHTML = CAPTION[name];
+  }
+
+  picks.forEach(function (p) {
+    p.addEventListener("click", function () { show(p.dataset.screen); });
+  });
+
+  var ztabs = Array.prototype.slice.call(document.querySelectorAll(".ztab"));
+  var zpanels = Array.prototype.slice.call(document.querySelectorAll("[data-ztabpanel]"));
+  ztabs.forEach(function (t) {
+    t.addEventListener("click", function () {
+      ztabs.forEach(function (x) {
+        x.setAttribute("aria-selected", String(x === t));
+      });
+      zpanels.forEach(function (p) {
+        p.hidden = (p.dataset.ztabpanel !== t.dataset.ztab);
+      });
+    });
+  });
+
+  // 1-6 jump between screens, the way the picker is numbered.
+  document.addEventListener("keydown", function (e) {
+    if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+    var n = parseInt(e.key, 10);
+    if (n >= 1 && n <= picks.length) show(picks[n - 1].dataset.screen);
+  });
+
+  show("session");
+})();
+</script>

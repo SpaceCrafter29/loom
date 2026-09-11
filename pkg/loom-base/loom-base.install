@@ -32,7 +32,7 @@ pre_remove() {
   cat <<'MSG'
 
   Removing loom-base leaves /etc/mkinitcpio.d/linux.preset pointing at
-  /efi/EFI/Linux. Kernel images keep building, but the rescue entry will no
+  /efi/EFI/loom. Kernel images keep building, but the rescue entry will no
   longer be rebuilt on kernel upgrades, and a stale rescue image cannot read a
   newer kernel's disks.
 

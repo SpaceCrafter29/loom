@@ -258,7 +258,7 @@ $( (( SWAP_GIB > 0 )) && printf '    @swap        /swap          nodatacow, %sGi
 
   boot
     systemd-boot on the ESP, menu timeout 3s
-    unified kernel images in /efi/EFI/Linux
+    unified kernel images in /efi/EFI/loom
       loom-linux.efi            normal boot
       loom-linux-fallback.efi   same, with every module
       loom-rescue.efi           offline snapshot rollback and repair shell
@@ -537,10 +537,8 @@ install_bootloader() {
     arch-chroot "$TARGET" bootctl --esp-path=/efi install >>"$LOOM_LOG" 2>&1
     ok "systemd-boot installed"
 
-    # No entry files: systemd-boot discovers unified kernel images in
-    # /efi/EFI/Linux by itself, which is one fewer thing to keep in sync.
     cat >"$TARGET/efi/loader/loader.conf" <<EOF
-default      loom-linux.efi
+default      10-loom.conf
 timeout      3
 console-mode keep
 # Editing the command line at boot would let anyone with the keyboard add
@@ -549,7 +547,15 @@ console-mode keep
 editor       no
 EOF
     ok "loader.conf written (3s menu, command-line editing off)"
-    mkdir -p "$TARGET/efi/EFI/Linux"
+
+    # The kernel images go in /EFI/loom, which systemd-boot does not scan, and
+    # are named by the entry files below. Auto-discovery would title all three
+    # from the same embedded /etc/os-release, so the menu would read
+    # "Arch Linux" three times and the rescue entry would be unfindable.
+    mkdir -p "$TARGET/efi/EFI/loom" "$TARGET/efi/loader/entries"
+    install -Dm644 -t "$TARGET/efi/loader/entries" \
+        "$PAYLOAD"/rootfs/usr/share/loom/boot/entries/*.conf
+    ok "boot entries: Loom / Loom (fallback) / Loom Rescue"
 }
 
 # --- 7. loom proper ---------------------------------------------------------
