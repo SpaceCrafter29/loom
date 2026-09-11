@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Runs when the live medium autologs in as root on tty1.
 
 [[ -f ~/.bashrc ]] && . ~/.bashrc

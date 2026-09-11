@@ -4,6 +4,9 @@
 
 # --- output ------------------------------------------------------------------
 
+# C_CYN is used by the scripts that source this file, not by this file, so
+# shellcheck cannot see a consumer for it when linting common.sh on its own.
+# shellcheck disable=SC2034
 if [[ -t 1 ]]; then
     C_RESET=$'\033[0m'; C_DIM=$'\033[2m'; C_B=$'\033[1m'
     C_RED=$'\033[31m'; C_GRN=$'\033[32m'; C_YEL=$'\033[33m'

@@ -20,7 +20,7 @@
 set -euo pipefail
 
 PAYLOAD="/usr/share/loom-payload"
-# shellcheck source=/dev/null
+# shellcheck source=lib/common.sh
 . "$PAYLOAD/scripts/lib/common.sh"
 
 LOOM_LOG="/tmp/loom-install.log"

@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Loom environment defaults for POSIX shells.
 export EDITOR=nvim
 export VISUAL=nvim

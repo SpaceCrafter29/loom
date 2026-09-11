@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Start the Loom session on the session TTY. All the gating lives in
 # loom-session itself so that bash and fish can share one implementation.
 #

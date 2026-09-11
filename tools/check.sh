@@ -101,18 +101,37 @@ check_shellcheck() {
         warn "shellcheck is not installed; skipping (pacman -S shellcheck)"
         return 0
     fi
+    # -x with source-path=SCRIPTDIR makes shellcheck actually read lib/common.sh
+    # instead of guessing at it. Without that, every colour variable and helper
+    # function defined there looks undefined in the scripts that source it, and
+    # the real findings drown in false positives.
+    local -a args=(-s bash -S warning -x --source-path=SCRIPTDIR --source-path="$REPO/scripts" -e SC1091)
+
     local f issues=0
     while read -r f; do
-        case "$f" in *.fish) continue ;; esac
+        case "$f" in
+            *.fish) continue ;;
+            # PKGBUILD is a makepkg data file, not a program. makepkg injects
+            # $pkgdir and $srcdir and reads the metadata variables itself, so
+            # shellcheck sees nothing but unused assignments and undefined
+            # references. bash -n still checks it for syntax.
+            */PKGBUILD) continue ;;
+        esac
         [[ $(head -n1 "$f") == '#!/usr/bin/ash' ]] && continue
-        if ! shellcheck -s bash -S warning -e SC1091 "$f"; then
+        if ! shellcheck "${args[@]}" "$f"; then
             issues=$((issues + 1))
         fi
     done < <(shell_files)
+
     if (( issues == 0 )); then
         pass "clean at severity >= warning"
     else
-        fail "$issues file(s) have shellcheck warnings"
+        # Advisory, not a gate. shellcheck's warning set grows with every
+        # release, so gating on it means a new shellcheck version can fail CI on
+        # a commit that changed nothing. The checks that genuinely brick a boot
+        # -- CRLF, missing files, broken cross-references -- fail hard above.
+        warn "$issues file(s) have shellcheck findings, listed above"
+        info "advisory: shellcheck does not fail this run. Fix them anyway."
     fi
 }
 

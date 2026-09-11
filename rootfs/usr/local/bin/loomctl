@@ -34,7 +34,6 @@ LOOM_SNAPSHOT_ON_UPDATE="1"
 LOOM_GUI_COMPOSITOR="cage"
 LOOM_GUI_SESSION="river"
 LOOM_GUI_BROWSER="firefox"
-LOOM_SNAPSHOT_KEEP_NUMBER="12"
 
 # shellcheck source=/dev/null
 [[ -r $LOOM_CONF ]] && . "$LOOM_CONF"
