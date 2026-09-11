@@ -258,6 +258,56 @@ check_profiledef() {
 
 # --- 6. rootfs references ----------------------------------------------------
 
+# mkarchiso needs more than profiledef.sh. A profile missing any of these builds
+# for twenty minutes and then fails, or worse, produces an ISO that does not
+# boot -- which is a slow and expensive way to learn about a missing file.
+check_archiso_layout() {
+    group "archiso profile completeness"
+    local -a required=(
+        iso/profiledef.sh
+        iso/packages.x86_64
+        iso/pacman.conf
+        # The live medium's own initramfs. The `archiso` hook in here is what
+        # finds the boot medium and pivots into the squashfs; without it the
+        # image boots to an initramfs looking for a root that does not exist.
+        iso/airootfs/etc/mkinitcpio.conf.d/archiso.conf
+        iso/airootfs/etc/mkinitcpio.d/linux.preset
+        iso/efiboot/loader/loader.conf
+    )
+    local f missing=0
+    for f in "${required[@]}"; do
+        if [[ -e $f ]]; then
+            pass "$f"
+        else
+            fail "missing: $f"
+            missing=$((missing + 1))
+        fi
+    done
+
+    # The preset must actually define the entry mkarchiso looks for.
+    if [[ -f iso/airootfs/etc/mkinitcpio.d/linux.preset ]]; then
+        if grep -q "PRESETS=(.*archiso.*)" iso/airootfs/etc/mkinitcpio.d/linux.preset; then
+            pass "linux.preset defines the 'archiso' preset"
+        else
+            fail "iso/airootfs/etc/mkinitcpio.d/linux.preset does not define PRESETS=('archiso')"
+        fi
+    fi
+    if [[ -f iso/airootfs/etc/mkinitcpio.conf.d/archiso.conf ]]; then
+        if grep -qE '^HOOKS=.*[( ]archiso[ )]' iso/airootfs/etc/mkinitcpio.conf.d/archiso.conf; then
+            pass "the live initramfs includes the archiso hook"
+        else
+            fail "iso/airootfs/etc/mkinitcpio.conf.d/archiso.conf has no 'archiso' hook in HOOKS"
+        fi
+    fi
+
+    # At least one package list entry must provide those hooks.
+    if grep -qx 'mkinitcpio-archiso' iso/packages.x86_64 2>/dev/null; then
+        pass "mkinitcpio-archiso is on the medium (it provides the archiso hook)"
+    else
+        fail "iso/packages.x86_64 is missing mkinitcpio-archiso"
+    fi
+}
+
 check_rootfs_refs() {
     group "cross-references"
 
@@ -410,6 +460,7 @@ check_shellcheck
 check_exec_bits
 check_package_lists
 check_profiledef
+check_archiso_layout
 check_rootfs_refs
 check_configs
 check_docs
