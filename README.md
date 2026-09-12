@@ -23,7 +23,7 @@ loomctl health             # what is wrong with this machine
 | | |
 |---|---|
 | **base** | Arch, rolling |
-| **session** | zellij on the Linux console, started at login on `tty1` |
+| **session** | zellij on the Linux console, started at login on `tty1`. tmux is configured too, and one line switches |
 | **escape hatch** | `tty2`–`tty6` are always plain login shells |
 | **filesystem** | Btrfs, subvolume layout built for rollback |
 | **encryption** | LUKS2 with argon2id, full disk |

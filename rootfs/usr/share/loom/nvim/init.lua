@@ -100,6 +100,7 @@ map("n", "<leader>/", ":grep ", { desc = "grep (ripgrep)" })
 -- Loom-specific: these are the files you will actually edit on this system.
 map("n", "<leader>lc", "<cmd>edit /etc/loom/loom.conf<CR>", { desc = "loom.conf" })
 map("n", "<leader>lz", "<cmd>edit ~/.config/zellij/config.kdl<CR>", { desc = "zellij config" })
+map("n", "<leader>lt", "<cmd>edit ~/.config/tmux/tmux.conf<CR>", { desc = "tmux config" })
 
 ------------------------------------------------------------------- autocommands
 local aug = vim.api.nvim_create_augroup("loom", { clear = true })

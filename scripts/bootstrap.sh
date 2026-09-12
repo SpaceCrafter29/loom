@@ -177,6 +177,7 @@ install_config() {
                /usr/local/bin/loom-build-rescue
     chmod 0755 /etc/initcpio/install/loom-rescue /etc/initcpio/hooks/loom-rescue
     chmod 0755 /usr/share/loom/rescue/rescue.sh
+    chmod 0755 /usr/share/loom/tmux/layout.sh
     chmod 0440 /etc/sudoers.d/loom
     ok "configuration installed"
 
@@ -210,6 +211,7 @@ loom_user_configs() {
     cat <<'EOF'
 /usr/share/loom/zellij/config.kdl:.config/zellij/config.kdl
 /usr/share/loom/zellij/layouts/loom.kdl:.config/zellij/layouts/loom.kdl
+/usr/share/loom/tmux/tmux.conf:.config/tmux/tmux.conf
 /usr/share/loom/nvim/init.lua:.config/nvim/init.lua
 /usr/share/loom/starship.toml:.config/starship.toml
 /usr/share/loom/btop/btop.conf:.config/btop/btop.conf
@@ -472,7 +474,7 @@ configure_user() {
     fi
 
     if (( DRY_RUN )); then
-        note "would install zellij, neovim, starship and btop configs into $home/.config"
+        note "would install zellij, tmux, neovim, starship and btop configs into $home/.config"
         return 0
     fi
 
@@ -550,6 +552,7 @@ finish() {
 ${C_CYN}${C_B}Loom is installed.${C_RESET}
 
   ${C_B}tty1${C_RESET}        your session: zellij, started at login
+              (tmux instead: LOOM_MULTIPLEXER in /etc/loom/loom.conf)
   ${C_B}tty2-tty6${C_RESET}   plain login shells, always, no matter what you break
   ${C_B}Alt+f g m w${C_RESET} files / git / system / browser, in a new pane
 

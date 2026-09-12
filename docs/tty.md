@@ -22,6 +22,8 @@ greens, all the blues — and `loom-console-palette.service` applies it with
 Every theme in the system points at those indices rather than at hex values:
 
 - zellij's `loom` theme uses `fg 7`, `bg 0`, `red 1` …
+- tmux's config names `colour0`–`colour15` and nothing else; `tools/check.sh`
+  fails if a hex value ever appears in it
 - neovim sets `termguicolors = false` when `$TERM` is `linux` and uses the
   16-colour `vim` scheme
 - btop runs with `truecolor = False` and `force_tty = True`
@@ -46,8 +48,9 @@ among them. They render as empty boxes.
 
 **What Loom does:** every shipped config is ASCII or plain Unicode.
 `simplified_ui true` in zellij's config switches its status bar to plain
-characters; starship's prompt is `>` rather than a chevron glyph; btop's
-`rounded_corners` is off; neovim's `fillchars` and `listchars` branch on `$TERM`.
+characters, and tmux's status bar is built out of ASCII for the same reason;
+starship's prompt is `>` rather than a chevron glyph; btop's `rounded_corners`
+is off; neovim's `fillchars` and `listchars` branch on `$TERM`.
 
 Font too large or too small for your panel:
 
@@ -71,7 +74,7 @@ What works instead:
 | images, properly | `fbv` from the AUR draws real pixels straight to the framebuffer |
 | video | `mpv --vo=drm video.mkv` plays full screen on the bare console. No compositor needed |
 | PDFs | `pdftotext doc.pdf -` for the text, `loomctl gui zathura doc.pdf` to actually look at it |
-| copy/paste | zellij's own copy mode, within the session. `copy_on_select` is on |
+| copy/paste | the multiplexer's own copy mode, within the session. Selecting copies on release in both zellij and tmux |
 | mouse | `gpm` is enabled, so selection and middle-click paste work at the console too |
 
 Anything that genuinely needs pixels goes through `loomctl gui <app>`, which is
@@ -112,12 +115,13 @@ fine. On something that travels, leave it off.
 
 ## The escape hatch
 
-`tty2` through `tty6` are plain login shells. Always. They read no zellij config,
-start no session, and cannot be affected by anything you break in `~/.config`.
+`tty2` through `tty6` are plain login shells. Always. They read no session
+config, start no multiplexer, and cannot be affected by anything you break in
+`~/.config`.
 
 `Ctrl+Alt+F2` is the answer to "I broke my session".
 
-And if zellij itself fails to start twice in under five seconds, `loom-session`
-writes `/run/loom/no-session`, which disables autostart until the next reboot and
-prints the commands to diagnose it. You get a plain shell on `tty1` with an
-explanation, rather than a login loop.
+And if the multiplexer itself fails to start twice in under five seconds,
+`loom-session` writes `/run/loom/no-session`, which disables autostart until the
+next reboot and prints the commands to diagnose it. You get a plain shell on
+`tty1` with an explanation, rather than a login loop.

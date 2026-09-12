@@ -150,6 +150,7 @@ check_exec_bits() {
         rootfs/usr/local/bin/loom-sign-boot
         rootfs/usr/local/bin/loom-build-rescue
         rootfs/usr/share/loom/rescue/rescue.sh
+        rootfs/usr/share/loom/tmux/layout.sh
         rootfs/etc/initcpio/install/loom-rescue
         rootfs/etc/initcpio/hooks/loom-rescue
     )
@@ -432,6 +433,52 @@ check_configs() {
             fail "$(basename "$k"): $open '{' but $close '}'"
         fi
     done
+
+    # The tmux config is the other half of the session. It cannot be parsed
+    # without tmux, but the two things that would quietly ruin it on a console
+    # can both be checked here.
+    local tc="rootfs/usr/share/loom/tmux/tmux.conf"
+    local zc="rootfs/usr/share/loom/zellij/config.kdl"
+    if [[ -f $tc ]]; then
+        # Colours by palette index, never hex. This is the rule that lets
+        # /usr/share/loom/console/palette restyle the whole system, and a
+        # truecolour value here is approximated into mud by the VT.
+        if grep -qE '#[0-9a-fA-F]{6}([^0-9a-fA-F]|$)' "$tc"; then
+            fail "$tc: a hex colour -- the palette is referenced by index (colourN)"
+            grep -nE '#[0-9a-fA-F]{6}([^0-9a-fA-F]|$)' "$tc" | sed 's/^/        /'
+        else
+            pass "tmux.conf refers to colours by index only"
+        fi
+
+        # Switching LOOM_MULTIPLEXER is only cheap while the two configs agree
+        # about the keys, so every Alt binding zellij adds must exist here too.
+        # This is the check that catches "I added a shortcut to one of them".
+        if [[ -f $zc ]]; then
+            local key nbind=0 nmiss=0
+            while read -r key; do
+                nbind=$((nbind + 1))
+                grep -qE "^bind -n M-$key(\s|\$)" "$tc" \
+                    || { fail "zellij binds Alt+$key, tmux.conf has no 'bind -n M-$key'"; nmiss=$((nmiss + 1)); }
+            done < <(sed -n 's/.*bind "Alt \([a-z]\)".*/\1/p' "$zc")
+            (( nbind > 0 && nmiss == 0 )) && pass "tmux.conf mirrors all $nbind Alt binding(s) from zellij"
+        fi
+    else
+        fail "$tc is missing"
+    fi
+
+    # zellij builds its tabs from a KDL layout and tmux from a script; they are
+    # meant to produce the same four windows.
+    local ls="rootfs/usr/share/loom/tmux/layout.sh"
+    local zl="rootfs/usr/share/loom/zellij/layouts/loom.kdl"
+    if [[ -f $ls && -f $zl ]]; then
+        local tab ntab=0 nmiss=0
+        while read -r tab; do
+            ntab=$((ntab + 1))
+            grep -qw -- "$tab" "$ls" \
+                || { fail "the zellij layout has a '$tab' tab, layout.sh has no such window"; nmiss=$((nmiss + 1)); }
+        done < <(sed -n 's/.*tab name="\([a-z]*\)".*/\1/p' "$zl")
+        (( ntab > 0 && nmiss == 0 )) && pass "layout.sh builds all $ntab window(s) from the zellij layout"
+    fi
 
     # loom.conf must be sourceable, since loomctl, loom-session and loom-gui all
     # source it.

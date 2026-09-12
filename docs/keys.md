@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| `Ctrl+Alt+F1` | the session (zellij) |
+| `Ctrl+Alt+F1` | the session — zellij, or tmux if you have switched |
 | `Ctrl+Alt+F2` … `F6` | plain login shells. These always work |
 
 ## zellij
@@ -42,9 +42,54 @@ resizes.
 Detaching (`Ctrl+o d`) leaves the session running. Log back in on `tty1` and
 `loom-session` reattaches you to it.
 
+## tmux
+
+The other multiplexer. `packages/session.txt` installs both and Loom configures
+both; which one owns `tty1` is one line in `/etc/loom/loom.conf`:
+
+```bash
+sudoedit /etc/loom/loom.conf     # LOOM_MULTIPLEXER="tmux"
+```
+
+It takes effect at the next login on `tty1`. A session that is already running
+is not migrated — log out, or `loom-session` by hand.
+
+The prefix is `Ctrl+b`, tmux's own, left alone for the same reason Loom leaves
+zellij's defaults alone: every tmux answer you will ever find assumes it.
+
+| | |
+|---|---|
+| `Ctrl+b` then `c` / `,` / `&` | new window / rename / close |
+| `Ctrl+b` then `\|` / `-` | split right / split down. `%` and `"` still work |
+| `Ctrl+b` then `z` | zoom the pane, and again to unzoom |
+| `Ctrl+b` then `[` | copy mode — `v` select, `y` copy, `q` out. `]` pastes |
+| `Ctrl+b` then `d` | detach. Logging back in on `tty1` reattaches you |
+| `Ctrl+b` then `r` | reload `~/.config/tmux/tmux.conf` |
+| `Ctrl+b` then `H` `J` `K` `L` | resize, repeatable — hold the prefix once and keep tapping |
+
+**Without the prefix:**
+
+| | |
+|---|---|
+| `Alt+←` `↓` `↑` `→` | move focus between panes |
+| `Alt+1` … `Alt+9` | go to that window |
+| `Alt+f` `Alt+g` `Alt+m` `Alt+w` `Alt+h` | the same five as zellij: `yazi`, `lazygit`, `btop`, `loomctl web`, `loomctl health` |
+
+Those five open a *window* rather than a pane, which is the one place the two
+multiplexers deliberately differ: on an 80×25 console a half-height `btop` is
+not worth looking at. `Ctrl+b` then `w` brings you back.
+
+Mouse selection copies on release, as it does in zellij. The buffer is tmux's
+own — there is no clipboard behind a VT — so paste with `Ctrl+b` `]` and list
+what you have with `Ctrl+b` `b`.
+
+`tools/check.sh` fails if the two configs disagree about those five keys, or if
+the tmux config ever names a colour in hex instead of by palette index.
+
 ## The default layout
 
-Four tabs, because four fit in a console status bar without wrapping:
+Both multiplexers open the same four, because four fit in a console status bar
+without wrapping:
 
 | tab | what is in it |
 |---|---|
@@ -55,6 +100,11 @@ Four tabs, because four fit in a console status bar without wrapping:
 
 Edit `~/.config/zellij/layouts/loom.kdl`. To start from the shipped version
 again, delete yours and copy `/usr/share/loom/zellij/layouts/loom.kdl` back.
+
+tmux has no declarative layout — a layout there is a sequence of commands — so
+its copy of those four windows is `/usr/share/loom/tmux/layout.sh`, which
+`loom-session` runs once when it creates the session. It does nothing to a
+session that already has its windows, so reattaching never duplicates them.
 
 ## loomctl
 
@@ -105,7 +155,7 @@ is not an editor. Leader is `Space`.
 | `<leader>e` | file explorer (netrw) |
 | `<leader>b` | switch buffer |
 | `<leader>/` | `:grep`, wired to ripgrep |
-| `<leader>lc` / `<leader>lz` | edit `loom.conf` / zellij's config |
+| `<leader>lc` / `<leader>lz` / `<leader>lt` | edit `loom.conf` / zellij's config / tmux's |
 | `Ctrl+h/j/k/l` | window movement without the `Ctrl+w` prefix |
 | `Esc` | clear search highlight |
 
@@ -120,6 +170,7 @@ so a syntax error in it cannot stop neovim from starting.
 | `/etc/kernel/cmdline` | the kernel command line, embedded into the images |
 | `/usr/share/loom/console/palette` | the 16 colours the whole system uses |
 | `/usr/share/loom/zellij/` | the shipped session config and layout |
+| `/usr/share/loom/tmux/` | the same, for tmux: `tmux.conf` and `layout.sh` |
 | `/usr/share/loom/boot/` | mkinitcpio presets and the cmdline example |
 | `/usr/share/loom/rescue/rescue.sh` | the rescue shell, also embedded in the rescue image |
 | `/usr/share/loom/optional/` | things you can opt into, like autologin |

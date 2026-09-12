@@ -43,6 +43,7 @@ optdepends=(
   'cage: run a single graphical application on demand'
   'river: a tiling Wayland session for when the console is not enough'
   'tlp: laptop power management'
+  'tmux: the alternative multiplexer, for LOOM_MULTIPLEXER="tmux"'
   'starship: the prompt Loom ships a config for'
   'yazi: the file manager bound to Alt+f'
   'lazygit: the git UI bound to Alt+g'
@@ -93,6 +94,8 @@ package() {
   done
   install -Dm755 "$repo/rootfs/usr/share/loom/rescue/rescue.sh" \
                  "$pkgdir/usr/share/loom/rescue/rescue.sh"
+  install -Dm755 "$repo/rootfs/usr/share/loom/tmux/layout.sh" \
+                 "$pkgdir/usr/share/loom/tmux/layout.sh"
   install -Dm755 "$repo/rootfs/etc/initcpio/install/loom-rescue" \
                  "$pkgdir/etc/initcpio/install/loom-rescue"
   install -Dm755 "$repo/rootfs/etc/initcpio/hooks/loom-rescue" \

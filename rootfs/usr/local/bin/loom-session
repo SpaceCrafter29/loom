@@ -26,6 +26,9 @@ LOOM_SESSION_TTY="tty1"
 LOOM_MULTIPLEXER="zellij"
 LOOM_ZELLIJ_SESSION="loom"
 LOOM_ZELLIJ_LAYOUT="loom"
+LOOM_TMUX_SESSION="loom"
+LOOM_TMUX_CONFIG="/usr/share/loom/tmux/tmux.conf"
+LOOM_TMUX_LAYOUT="/usr/share/loom/tmux/layout.sh"
 # shellcheck source=/dev/null
 [[ -r $LOOM_CONF ]] && . "$LOOM_CONF"
 
@@ -108,7 +111,35 @@ start_zellij() {
 
 start_tmux() {
     command -v tmux >/dev/null 2>&1 || { note "tmux is not installed"; return 1; }
-    tmux new-session -A -s "$LOOM_ZELLIJ_SESSION"
+
+    # tmux finds ~/.config/tmux/tmux.conf by itself, exactly as zellij finds
+    # ~/.config/zellij/config.kdl, and bootstrap.sh puts Loom's there. -f is
+    # only for a login that has neither that file nor ~/.tmux.conf: without it
+    # such an account gets bare tmux -- no palette, no bindings -- which looks
+    # like a broken session rather than an unconfigured one. It is passed on
+    # the create path alone, since tmux reads a config when the server starts
+    # and ignores -f once one is running.
+    local -a conf=()
+    if [[ ! -r ${XDG_CONFIG_HOME:-$HOME/.config}/tmux/tmux.conf && ! -r $HOME/.tmux.conf ]]; then
+        [[ -r $LOOM_TMUX_CONFIG ]] && conf=(-f "$LOOM_TMUX_CONFIG")
+    fi
+
+    # "=name" is an exact match, so a session called "loomy" cannot answer for
+    # "loom". attach-or-create, same as zellij above: a reboot gives you a
+    # fresh session, detaching and logging back in puts you where you were.
+    if tmux has-session -t "=$LOOM_TMUX_SESSION" 2>/dev/null; then
+        tmux attach-session -t "=$LOOM_TMUX_SESSION"
+        return
+    fi
+
+    # Created detached and laid out before the attach, so that the layout talks
+    # to a session that already exists -- and so that a layout script that
+    # fails leaves you attached to a working session instead of no session.
+    tmux "${conf[@]}" new-session -d -s "$LOOM_TMUX_SESSION" || return 1
+    if [[ -x $LOOM_TMUX_LAYOUT ]]; then
+        "$LOOM_TMUX_LAYOUT" "$LOOM_TMUX_SESSION" || note "the layout script failed; carrying on"
+    fi
+    tmux attach-session -t "=$LOOM_TMUX_SESSION"
 }
 
 run_session() {
