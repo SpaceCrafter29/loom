@@ -443,9 +443,16 @@ check_configs() {
         # Colours by palette index, never hex. This is the rule that lets
         # /usr/share/loom/console/palette restyle the whole system, and a
         # truecolour value here is approximated into mud by the VT.
-        if grep -qE '#[0-9a-fA-F]{6}([^0-9a-fA-F]|$)' "$tc"; then
+        #
+        # Comment lines are exempt: a comment cannot set a colour, and the one
+        # above pane-border-style quotes the palette's hex values to explain
+        # why a particular index is the wrong choice. Flagging that is a false
+        # positive that would only teach the next person to delete the reason.
+        local hex
+        hex=$(grep -nE '#[0-9a-fA-F]{6}([^0-9a-fA-F]|$)' "$tc" | grep -vE '^[0-9]+:[[:space:]]*#')
+        if [[ -n $hex ]]; then
             fail "$tc: a hex colour -- the palette is referenced by index (colourN)"
-            grep -nE '#[0-9a-fA-F]{6}([^0-9a-fA-F]|$)' "$tc" | sed 's/^/        /'
+            printf '        %s\n' "$hex"
         else
             pass "tmux.conf refers to colours by index only"
         fi
@@ -464,6 +471,72 @@ check_configs() {
         fi
     else
         fail "$tc is missing"
+    fi
+
+    # Every colour the tmux status bar puts on screen, checked against the
+    # palette it will actually be drawn with. colour8 is the reason this exists:
+    # it is the obvious choice for "dim" and on this palette it is #4a4744 on
+    # #1c1b1a, a ratio of 1.86:1, which is not dim but invisible. Computed from
+    # console/palette rather than hardcoded, so editing the palette -- which is
+    # the supported way to restyle the system -- is checked too.
+    if [[ -f $tc && -f $pal ]]; then
+        local contrast
+        contrast=$(awk -v MIN=3.0 '
+            function lin(c,  v) { v = c / 255; return (v <= 0.03928) ? v / 12.92 : ((v + 0.055) / 1.055) ^ 2.4 }
+            function lum(i)     { return 0.2126 * lin(R[i]) + 0.7152 * lin(G[i]) + 0.0722 * lin(B[i]) }
+            function ratio(a, b,   la, lb, hi, lo) {
+                la = lum(a); lb = lum(b)
+                hi = (la > lb ? la : lb); lo = (la > lb ? lb : la)
+                return (hi + 0.05) / (lo + 0.05)
+            }
+            function check(f, b, what) {
+                if (f == "" || b == "" || f == b) return
+                if (ratio(f, b) < MIN)
+                    printf "%s: colour%s on colour%s is %.2f:1\n", what, f, b, ratio(f, b)
+            }
+            # The palette: three lines, all the reds, all the greens, all the blues.
+            FNR == NR { if (FNR <= 3) { n = split($0, a, ","); for (i = 1; i <= n; i++) P[FNR, i-1] = a[i] + 0 } next }
+            FNR == 1 { for (i = 0; i < 16; i++) { R[i] = P[1, i]; G[i] = P[2, i]; B[i] = P[3, i] } }
+
+            # The bar default, which every format below starts from.
+            /^set -g status-style/ {
+                if (match($0, /fg=colour[0-9]+/)) DFG = substr($0, RSTART + 9, RLENGTH - 9)
+                if (match($0, /bg=colour[0-9]+/)) DBG = substr($0, RSTART + 9, RLENGTH - 9)
+                check(DFG, DBG, "status-style")
+                next
+            }
+            # A style option is one attribute group; a bare fg sits on the bar.
+            /^set(w)? -g (message|message-command|mode|window-status-(activity|bell))-style/ {
+                opt = $3
+                f = ""; b = DBG
+                if (match($0, /fg=colour[0-9]+/)) f = substr($0, RSTART + 9, RLENGTH - 9)
+                if (match($0, /bg=colour[0-9]+/)) b = substr($0, RSTART + 9, RLENGTH - 9)
+                check(f, b, opt)
+                next
+            }
+            # A format string: walk its #[...] groups, carrying fg and bg
+            # forward the way tmux does, so text after a #[bg=...] is checked
+            # against that background and #[default] goes back to the bar.
+            /^set(w)? -g (status-left|status-right|window-status-format|window-status-current-format)/ {
+                opt = $3
+                rest = $0; f = DFG; b = DBG
+                while (match(rest, /#\[[^]]*\]/)) {
+                    grp = substr(rest, RSTART, RLENGTH)
+                    rest = substr(rest, RSTART + RLENGTH)
+                    if (grp ~ /default/) { f = DFG; b = DBG }
+                    if (match(grp, /fg=colour[0-9]+/)) f = substr(grp, RSTART + 9, RLENGTH - 9)
+                    if (match(grp, /bg=colour[0-9]+/)) b = substr(grp, RSTART + 9, RLENGTH - 9)
+                    check(f, b, opt)
+                }
+            }
+        ' "$pal" "$tc")
+        if [[ -n $contrast ]]; then
+            fail "tmux.conf: status colours that will not be readable on this palette"
+            printf '        %s\n' "$contrast"
+            info "      a foreground needs 3:1 against what it sits on; colour8 on colour0 is 1.86:1"
+        else
+            pass "tmux.conf status colours all clear 3:1 against the palette"
+        fi
     fi
 
     # zellij builds its tabs from a KDL layout and tmux from a script; they are

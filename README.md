@@ -36,19 +36,20 @@ loomctl health             # what is wrong with this machine
 ## What it looks like
 
 [`docs/preview/index.html`](docs/preview/index.html) draws the running system:
-the boot menu, the LUKS prompt, the zellij session with its four tabs, what
-`loomctl health` and `loomctl update` print, and the rescue shell. Clone the repo
-and open that file in a browser — GitHub serves HTML as source, so the link above
-will not render it for you.
+the boot menu, the LUKS prompt, the session with its four tabs — drawn either
+way, zellij or tmux — what `loomctl health` and `loomctl update` print, and the
+rescue shell. Clone the repo and open that file in a browser — GitHub serves
+HTML as source, so the link above will not render it for you.
 
 It is a picture, not a demo; nothing in it runs. But the sixteen colours are the
 exact values from
 [`rootfs/usr/share/loom/console/palette`](rootfs/usr/share/loom/console/palette),
 and the text is the real output of the scripts in this repo rather than an
-impression of it — which is how two bugs turned up before the system had ever
+impression of it — which is how three bugs turned up before the system had ever
 booted: a summary line that said “nothing to clean up” immediately after asking
-for a reboot, and a boot menu that would have listed three entries all called
-*Arch Linux*.
+for a reboot, a boot menu that would have listed three entries all called *Arch
+Linux*, and a tmux status bar whose dim text was `#4a4744` on `#1c1b1a` — a
+contrast ratio of 1.86:1, which is not dim but invisible.
 
 ## Getting it
 

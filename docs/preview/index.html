@@ -39,6 +39,10 @@
 
 * { box-sizing: border-box; }
 
+/* A display rule beats the hidden attribute, and the bars below are flex
+   containers -- without this, switching multiplexer draws both at once. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   background: var(--ground);
@@ -225,6 +229,99 @@ pre.tty {
 .zstatus .key { color: var(--k11); }
 .zstatus .mode { color: var(--k7); }
 
+/* --- which multiplexer owns tty1 ---------------------------------- */
+
+.muxbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  background: #191817;
+  border-bottom: 1px solid var(--edge);
+  font-family: var(--mono);
+}
+.muxbar .lbl {
+  font-size: 10.5px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  margin-right: 4px;
+}
+.mux {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: transparent;
+  border: 1px solid var(--edge);
+  color: var(--ink-dim);
+  border-radius: 2px;
+  padding: 3px 11px;
+  cursor: pointer;
+  transition: color .12s, border-color .12s, background .12s;
+}
+.mux:hover { color: var(--ink); border-color: var(--edge-lit); }
+.mux:focus-visible { outline: 2px solid var(--k14); outline-offset: 2px; }
+.mux[aria-selected="true"] {
+  color: var(--k0);
+  background: var(--k14);
+  border-color: var(--k14);
+}
+.muxbar .dflt {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--k8);
+  letter-spacing: .04em;
+}
+
+/* --- tmux status bar ---------------------------------------------
+   One line, at the bottom, because that is where tmux puts it -- as
+   against zellij's tab row on top and two-line status underneath.
+   Every colour here is the one the config names by index:
+   status-left is fg=colour0 on bg=colour4, the current window is
+   fg=colour0 on bg=colour7, the rest is colour7 on the bar.
+   ------------------------------------------------------------------ */
+
+.tbar {
+  display: flex;
+  align-items: center;
+  background: var(--k0);
+  border-top: 1px solid var(--edge);
+  font-family: var(--mono);
+  font-size: 13px;
+  overflow-x: auto;
+}
+.tbar .tsess {
+  background: var(--k4);
+  color: var(--k0);
+  font-weight: 600;
+  padding: 3px 9px;
+  white-space: pre;
+}
+.tbar .tgap { width: 1ch; flex: none; }
+.twin {
+  font-family: var(--mono);
+  font-size: 13px;
+  border: 0;
+  background: transparent;
+  color: var(--k7);
+  padding: 3px 9px;
+  cursor: pointer;
+  white-space: pre;
+}
+.twin:hover { color: var(--k15); }
+.twin:focus-visible { outline: 2px solid var(--k14); outline-offset: -2px; }
+.twin[aria-selected="true"] {
+  background: var(--k7);
+  color: var(--k0);
+  font-weight: 600;
+}
+.tright {
+  margin-left: auto;
+  color: var(--k7);
+  padding: 3px 10px 3px 12px;
+  white-space: pre;
+}
+.tright .now { color: var(--k15); }
+
 /* --- annotations -------------------------------------------------- */
 
 .caption {
@@ -379,7 +476,14 @@ pre.tty {
 
     <!-- 3. SESSION ------------------------------------------------- -->
     <div data-panel="session">
-      <div class="zbar" role="tablist" aria-label="zellij tabs">
+      <div class="muxbar">
+        <span class="lbl">multiplexer</span>
+        <button class="mux" aria-selected="true"  data-mux="zellij">zellij</button>
+        <button class="mux" aria-selected="false" data-mux="tmux">tmux</button>
+        <span class="dflt">LOOM_MULTIPLEXER in /etc/loom/loom.conf</span>
+      </div>
+
+      <div class="zbar" data-muxonly="zellij" role="tablist" aria-label="zellij tabs">
         <button class="ztab" role="tab" aria-selected="true"  data-ztab="shell">shell</button>
         <button class="ztab" role="tab" aria-selected="false" data-ztab="files">files</button>
         <button class="ztab" role="tab" aria-selected="false" data-ztab="git">git</button>
@@ -427,7 +531,7 @@ pre.tty {
 </pre>
       </div>
 
-      <div class="crt" data-ztabpanel="git" hidden>
+      <div class="crt" data-ztabpanel="git" data-muxonly="zellij" hidden>
 <pre class="tty">
 
 
@@ -445,6 +549,26 @@ pre.tty {
   it waits for you rather than greeting you with one.</span>
 
 
+</pre>
+      </div>
+
+      <div class="crt" data-ztabpanel="git" data-muxonly="tmux" hidden>
+<pre class="tty">
+<span class="k12 b">stefan</span><span class="k8">@loom</span> <span class="k6 b">~/loom</span> <span class="k5 b">main</span> <span class="k3">*</span>
+<span class="k2 b">&gt;</span> lazygit<span class="cur"> </span>
+
+
+
+
+<span class="k8">  The same decision as zellij's start_suspended tab, in the only form
+  tmux has for it: layout.sh types the command into the window and does
+  not press enter. lazygit outside a repository is an error message, so
+  the window is ready and you choose the moment.
+
+    tmux send-keys -t "=$SESSION:git" "lazygit"
+
+  No run box, because tmux has none to draw -- this is a shell with a
+  line waiting in it, which is exactly what it looks like.</span>
 </pre>
       </div>
 
@@ -467,8 +591,17 @@ pre.tty {
 </pre>
       </div>
 
-      <div class="zstatus"><span class="mode">Ctrl +</span> <span class="key">&lt;g&gt;</span> LOCK  <span class="key">&lt;p&gt;</span> PANE  <span class="key">&lt;t&gt;</span> TAB  <span class="key">&lt;n&gt;</span> RESIZE  <span class="key">&lt;h&gt;</span> MOVE  <span class="key">&lt;s&gt;</span> SEARCH  <span class="key">&lt;o&gt;</span> SESSION  <span class="key">&lt;q&gt;</span> QUIT
+      <div class="zstatus" data-muxonly="zellij"><span class="mode">Ctrl +</span> <span class="key">&lt;g&gt;</span> LOCK  <span class="key">&lt;p&gt;</span> PANE  <span class="key">&lt;t&gt;</span> TAB  <span class="key">&lt;n&gt;</span> RESIZE  <span class="key">&lt;h&gt;</span> MOVE  <span class="key">&lt;s&gt;</span> SEARCH  <span class="key">&lt;o&gt;</span> SESSION  <span class="key">&lt;q&gt;</span> QUIT
 <span class="key">Alt +</span> <span class="key">f</span> files  <span class="key">g</span> git  <span class="key">m</span> system  <span class="key">w</span> browser  <span class="key">h</span> health</div>
+
+      <div class="tbar" data-muxonly="tmux" role="tablist" aria-label="tmux windows" hidden>
+        <span class="tsess"> loom </span><span class="tgap"></span
+        ><button class="twin" role="tab" aria-selected="true"  data-ztab="shell"> 1:shell </button
+        ><button class="twin" role="tab" aria-selected="false" data-ztab="files"> 2:files </button
+        ><button class="twin" role="tab" aria-selected="false" data-ztab="git"> 3:git </button
+        ><button class="twin" role="tab" aria-selected="false" data-ztab="sys"> 4:sys </button
+        ><span class="tright">loom <span class="now">21:14</span> 2026-09-11</span>
+      </div>
     </div>
 
     <!-- 4. HEALTH -------------------------------------------------- -->
@@ -598,7 +731,7 @@ Net Upgrade Size:      3.21 MiB</span>
     <div class="note">
       <h3>2 · The colours are exact</h3>
       <p>Not approximated. These are the values <code>setvtrgb</code> writes at boot, and every
-      theme in the system — zellij, neovim, btop, starship — refers to them by <em>index</em>,
+      theme in the system — zellij, tmux, neovim, btop, starship — refers to them by <em>index</em>,
       never by hex. Editing that one file restyles the whole machine.</p>
     </div>
     <div class="note">
@@ -617,6 +750,19 @@ Net Upgrade Size:      3.21 MiB</span>
       <p>The images now live in <code>/EFI/loom</code>, which systemd-boot does not scan, and three
       entry files name them. <code>tools/check.sh</code> checks that each entry points at an image
       the presets actually build.</p>
+    </div>
+    <div class="note">
+      <h3>5 · <span class="flag">Found drawing the tmux bar</span></h3>
+      <p>Drawing that status line meant resolving each <code>colour<em>N</em></code> against the
+      palette above, and three of them came back invisible. <code>colour8</code> is the obvious
+      choice for “dim” — it is what the inactive window names, the hostname and date, and the
+      pane-number overlay all used — but on this palette it is <code>#4a4744</code> on
+      <code>#1c1b1a</code>, a contrast ratio of <b>1.86:1</b>. Not dim. Gone.</p>
+      <p>They are <code>colour7</code> and <code>colour15</code> now. <code>tools/check.sh</code>
+      computes the ratio from <code>console/palette</code> rather than hardcoding it and fails
+      under 3:1, so editing the palette — the supported way to restyle the machine — cannot
+      quietly blank the bar either. Pane borders still use <code>colour8</code>, on purpose:
+      zellij draws no frames at all, and a border is furniture rather than text.</p>
     </div>
   </div>
 
@@ -669,6 +815,17 @@ Net Upgrade Size:      3.21 MiB</span>
     rescue:  ["Loom Rescue — initramfs, root not mounted", "80×30 · ter-132b"]
   };
 
+  // The session screen is the one that can be drawn two ways, so its bezel
+  // and caption come from the multiplexer rather than from the screen.
+  var SESSION_BEZEL = {
+    zellij: "tty1 \u2014 zellij session \u201cloom\u201d",
+    tmux:   "tty1 \u2014 tmux session \u201cloom\u201d"
+  };
+  var SESSION_CAPTION = {
+    zellij: '<b>tty1 runs the session; tty2\u2013tty6 are always plain login shells.</b> A broken config in <code>~/.config/zellij</code> cannot lock you out, and two fast session failures disable autostart for the rest of the boot and hand you a shell with an explanation.',
+    tmux: '<b>The same four windows and the same five Alt keys, one line of <code>loom.conf</code> away.</b> The chrome is where they differ: tmux puts a single status line at the bottom and numbers its windows from 1, where zellij carries a tab row on top and two lines of status underneath. The escape hatch is unchanged \u2014 <code>tty2</code>\u2013<code>tty6</code> stay plain login shells, and two fast failures disable autostart for the boot whichever one you run.'
+  };
+
   var CAPTION = {
     boot: '<b>Three unified kernel images and nothing else.</b> Each is one signed binary holding the kernel, the initramfs, the microcode and the command line — which is why Secure Boot here is a single signature over a single file, instead of a shell game with a signed kernel, an unsigned initramfs and a command line anyone at the keyboard can edit.',
     unlock: '<b>This prompt is the whole security model at rest.</b> Full-disk encryption protects the machine when it is off; Secure Boot protects the boot path when it is on. Together they stop someone swapping in a kernel that captures this passphrase.',
@@ -678,6 +835,7 @@ Net Upgrade Size:      3.21 MiB</span>
     rescue: '<b>This image carries its own tools.</b> cryptsetup, btrfs and a bash rescue shell live inside the initramfs, and it never reads the root filesystem to start — which is the only reason it still works when the root filesystem is the problem.'
   };
 
+  var current = "session";
   var picks = Array.prototype.slice.call(document.querySelectorAll(".pick"));
   var panels = Array.prototype.slice.call(document.querySelectorAll("[data-panel]"));
   var caption = document.getElementById("caption");
@@ -696,23 +854,53 @@ Net Upgrade Size:      3.21 MiB</span>
       bezelVt.textContent = BEZEL[name][1];
     }
     if (CAPTION[name]) caption.innerHTML = CAPTION[name];
+    current = name;
+    if (name === "session") renderSession();
   }
 
   picks.forEach(function (p) {
     p.addEventListener("click", function () { show(p.dataset.screen); });
   });
 
-  var ztabs = Array.prototype.slice.call(document.querySelectorAll(".ztab"));
+  // Both multiplexers open the same four windows, so the window panels are
+  // shared and only the chrome -- and the git window, which they genuinely
+  // draw differently -- is per-multiplexer.
+  var MUX = "zellij";
+  var WIN = "shell";
+
+  var muxes = Array.prototype.slice.call(document.querySelectorAll(".mux"));
+  var wintabs = Array.prototype.slice.call(document.querySelectorAll("[data-ztab]"));
   var zpanels = Array.prototype.slice.call(document.querySelectorAll("[data-ztabpanel]"));
-  ztabs.forEach(function (t) {
-    t.addEventListener("click", function () {
-      ztabs.forEach(function (x) {
-        x.setAttribute("aria-selected", String(x === t));
-      });
-      zpanels.forEach(function (p) {
-        p.hidden = (p.dataset.ztabpanel !== t.dataset.ztab);
-      });
+  var muxchrome = Array.prototype.slice.call(
+    document.querySelectorAll("[data-muxonly]:not([data-ztabpanel])")
+  );
+
+  function renderSession() {
+    zpanels.forEach(function (p) {
+      var onThisWindow = p.dataset.ztabpanel === WIN;
+      var onThisMux = !p.dataset.muxonly || p.dataset.muxonly === MUX;
+      p.hidden = !(onThisWindow && onThisMux);
     });
+    muxchrome.forEach(function (el) {
+      el.hidden = el.dataset.muxonly !== MUX;
+    });
+    wintabs.forEach(function (t) {
+      t.setAttribute("aria-selected", String(t.dataset.ztab === WIN));
+    });
+    muxes.forEach(function (m) {
+      m.setAttribute("aria-selected", String(m.dataset.mux === MUX));
+    });
+    if (current === "session") {
+      bezelWhat.textContent = SESSION_BEZEL[MUX];
+      caption.innerHTML = SESSION_CAPTION[MUX];
+    }
+  }
+
+  wintabs.forEach(function (t) {
+    t.addEventListener("click", function () { WIN = t.dataset.ztab; renderSession(); });
+  });
+  muxes.forEach(function (m) {
+    m.addEventListener("click", function () { MUX = m.dataset.mux; renderSession(); });
   });
 
   // 1-6 jump between screens, the way the picker is numbered.
