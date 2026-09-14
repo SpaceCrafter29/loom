@@ -190,6 +190,12 @@ check_package_lists() {
                 fail "$f: '$p' contains whitespace"
             elif [[ ! $p =~ ^[a-z0-9@._+-]+$ ]]; then
                 fail "$f: '$p' is not a plausible package name"
+            elif [[ $p == *_* ]]; then
+                # Arch separates words with hyphens. An underscore is almost
+                # always a name typed from memory rather than copied -- this
+                # cost three CI rounds once already (wireless_regdb).
+                warn "$f: '$p' contains an underscore; Arch names use hyphens"
+                info "      check it with: pacman -Ss '^${p//_/[-_]}\$'"
             fi
         done
         info "$(printf '%-22s %3d packages' "$(basename "$f")" "${#pkgs[@]}")"
