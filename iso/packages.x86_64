@@ -31,7 +31,7 @@ zstd
 # network
 networkmanager
 iwd
-wireless_regdb
+wireless-regdb
 openssh
 curl
 wget
